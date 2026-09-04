@@ -97,6 +97,17 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 			}
 		}
 	}
+	// Anthropic -> Chat Completions conversion can reintroduce an unsupported
+	// reasoning_effort after ingress normalization. Filter the final DeepSeek
+	// wire body before it is sent upstream.
+	if normalized, changed := normalizeDeepSeekReasoningEffortRequestBody(account, chatBody); changed {
+		chatBody = normalized
+		if effort := strings.TrimSpace(gjson.GetBytes(chatBody, "reasoning_effort").String()); effort != "" {
+			reasoningEffort = &effort
+		} else {
+			reasoningEffort = nil
+		}
+	}
 	// Unlike forwardResponsesViaRawChatCompletions, applyOpenAIFastPolicyToBody
 	// is intentionally skipped: Anthropic Messages bodies carry no service_tier,
 	// so the converted Chat Completions body never contains one and the policy
