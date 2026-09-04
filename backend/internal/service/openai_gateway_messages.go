@@ -300,6 +300,20 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, policyErr
 	}
 	responsesBody = updatedBody
+	// Anthropic -> Responses conversion can create reasoning.effort after the
+	// regular OpenAI ingress filter has already run. DeepSeek rejects values
+	// outside its OpenAI-compatible scale, so sanitize the final wire body
+	// immediately before building the upstream request.
+	if normalized, changed := normalizeDeepSeekReasoningEffortRequestBody(account, responsesBody); changed {
+		responsesBody = normalized
+		if responsesReq.Reasoning != nil {
+			if effort := strings.TrimSpace(gjson.GetBytes(responsesBody, "reasoning.effort").String()); effort != "" {
+				responsesReq.Reasoning.Effort = effort
+			} else {
+				responsesReq.Reasoning = nil
+			}
+		}
+	}
 	responsesReq.ServiceTier = normalizedOpenAIServiceTierValue(gjson.GetBytes(responsesBody, "service_tier").String())
 	grokCacheIdentity := ""
 	if account.Platform == PlatformGrok {

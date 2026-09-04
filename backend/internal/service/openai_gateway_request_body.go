@@ -136,6 +136,50 @@ func normalizeDeepSeekResponsesRequestBody(account *Account, body []byte) []byte
 	return normalized
 }
 
+// normalizeDeepSeekReasoningEffortRequestBody removes reasoning effort values
+// that the DeepSeek upstream does not accept. The filter is deliberately scoped
+// to DeepSeek accounts so other OpenAI-compatible providers keep their own
+// reasoning semantics unchanged.
+func normalizeDeepSeekReasoningEffortRequestBody(account *Account, body []byte) ([]byte, bool) {
+	if account == nil || account.Platform != PlatformDeepseek || len(body) == 0 {
+		return body, false
+	}
+
+	allowed := func(raw string) bool {
+		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "low", "medium", "high", "xhigh", "none":
+			return true
+		default:
+			return false
+		}
+	}
+
+	out := body
+	changed := false
+	for _, path := range []string{"reasoning.effort", "reasoning_effort"} {
+		value := gjson.GetBytes(out, path)
+		if !value.Exists() || (value.Type == gjson.String && allowed(value.String())) {
+			continue
+		}
+		next, err := sjson.DeleteBytes(out, path)
+		if err != nil {
+			return body, false
+		}
+		out = next
+		changed = true
+	}
+
+	if reasoning := gjson.GetBytes(out, "reasoning"); reasoning.IsObject() && len(reasoning.Map()) == 0 {
+		next, err := sjson.DeleteBytes(out, "reasoning")
+		if err != nil {
+			return body, false
+		}
+		out = next
+		changed = true
+	}
+	return out, changed
+}
+
 func trimOpenAIEncryptedReasoningItems(reqBody map[string]any) bool {
 	if len(reqBody) == 0 {
 		return false

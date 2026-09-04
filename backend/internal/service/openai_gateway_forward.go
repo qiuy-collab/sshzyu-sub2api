@@ -24,6 +24,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
 	}
+	if normalized, changed := normalizeDeepSeekReasoningEffortRequestBody(account, body); changed {
+		body = normalized
+	}
 	filteredBody, filterErr := filterOpenAIResponsesNoneReasoningEffortForAccount(account, body)
 	if filterErr != nil {
 		return nil, filterErr

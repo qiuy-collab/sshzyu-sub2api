@@ -409,4 +409,41 @@ func TestNormalizeOpenAIResponsesWebSocketCompatibilityBodyStripsReasoningConten
 	require.NoError(t, err)
 	require.False(t, changed)
 	require.JSONEq(t, string(body), string(normalized))
+func TestNormalizeDeepSeekReasoningEffortRequestBody_RemovesUnsupportedValues(t *testing.T) {
+	account := &Account{Platform: PlatformDeepseek}
+	tests := []struct {
+		name       string
+		body       string
+		changed    bool
+		wantEffort bool
+		wantReasoning bool
+		wantFlat   bool
+	}{
+		{name: "nested minimal", body: `{"reasoning":{"effort":"minimal"}}`, changed: true},
+		{name: "nested max with other fields", body: `{"reasoning":{"effort":"max","summary":"auto"}}`, changed: true, wantReasoning: true},
+		{name: "flat minimal", body: `{"reasoning_effort":"minimal"}`, changed: true},
+		{name: "null is removed", body: `{"reasoning_effort":null}`, changed: true},
+		{name: "valid nested effort is kept", body: `{"reasoning":{"effort":"high"}}`, wantEffort: true, wantReasoning: true},
+		{name: "valid flat effort is kept", body: `{"reasoning_effort":"none"}`, wantFlat: true},
+		{name: "one valid one invalid", body: `{"reasoning":{"effort":"default"},"reasoning_effort":"low"}`, changed: true, wantFlat: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			normalized, changed := normalizeDeepSeekReasoningEffortRequestBody(account, []byte(tt.body))
+			assert.Equal(t, tt.changed, changed)
+			assert.Equal(t, tt.wantEffort, gjson.GetBytes(normalized, "reasoning.effort").Exists())
+			assert.Equal(t, tt.wantFlat, gjson.GetBytes(normalized, "reasoning_effort").Exists())
+			if !tt.wantReasoning {
+				assert.False(t, gjson.GetBytes(normalized, "reasoning").Exists())
+			}
+		})
+	}
+}
+
+func TestNormalizeDeepSeekReasoningEffortRequestBody_IsScopedToDeepSeek(t *testing.T) {
+	body := []byte(`{"reasoning":{"effort":"minimal"},"reasoning_effort":"default"}`)
+	normalized, changed := normalizeDeepSeekReasoningEffortRequestBody(&Account{Platform: PlatformOpenAI}, body)
+	assert.False(t, changed)
+	assert.Equal(t, string(body), string(normalized))
 }
