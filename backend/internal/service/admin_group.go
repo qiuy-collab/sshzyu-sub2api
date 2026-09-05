@@ -435,7 +435,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	allowImageGeneration := input.AllowImageGeneration || defaultAllowImageGenerationForPlatform(platform)
-	allowBatchImageGeneration := input.AllowBatchImageGeneration && allowImageGeneration && platform == PlatformGemini
+	allowBatchImageGeneration := input.AllowBatchImageGeneration && allowImageGeneration && isBatchImageGroupPlatform(platform)
 
 	// 如果指定了复制账号的源分组，先获取账号 ID 列表
 	var accountIDsToCopy []int64
@@ -718,7 +718,7 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.AllowBatchImageGeneration != nil {
 		group.AllowBatchImageGeneration = *input.AllowBatchImageGeneration
 	}
-	if !group.AllowImageGeneration || group.Platform != PlatformGemini {
+	if !group.AllowImageGeneration || !isBatchImageGroupPlatform(group.Platform) {
 		group.AllowBatchImageGeneration = false
 	}
 	if input.ImageRateIndependent != nil {

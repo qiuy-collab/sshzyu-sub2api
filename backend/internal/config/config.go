@@ -3077,6 +3077,9 @@ func (c *Config) Validate() error {
 	if c.Redis.MinIdleConns > c.Redis.PoolSize {
 		return fmt.Errorf("redis.min_idle_conns cannot exceed redis.pool_size")
 	}
+	if c.BatchImage.Enabled && !c.BatchImage.QueueEnabled {
+		return fmt.Errorf("batch_image.queue_enabled must be true when batch_image.enabled is true")
+	}
 	if c.BatchImage.QueueEnabled {
 		if strings.TrimSpace(c.BatchImage.QueueReadyKey) == "" {
 			return fmt.Errorf("batch_image.queue_ready_key must not be empty")

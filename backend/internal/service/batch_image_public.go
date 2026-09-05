@@ -285,6 +285,24 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		SessionID:               normalized.SessionID,
 	})
 	if err != nil {
+		// A concurrent request with the same idempotency key can win between the
+		// initial lookup and INSERT. The database partial unique index is the
+		// authority: read its winner and return the same outcome without a second
+		// balance hold or upstream image submission.
+		if idempotencyKey != "" {
+			existing, lookupErr := s.Repo.GetBatchImageJobByIdempotencyKey(ctx, owner.UserID, owner.APIKeyID, idempotencyKey)
+			if lookupErr == nil {
+				if batchImageDerefString(existing.RequestHash) != requestHash {
+					return nil, ErrBatchImageIdempotencyConflict
+				}
+				if existing.Status == BatchImageJobStatusSubmitted && s.Queue != nil {
+					if enqueueErr := s.Queue.Enqueue(ctx, existing.BatchID); enqueueErr != nil && !errors.Is(enqueueErr, ErrBatchImageAlreadyQueued) {
+						return nil, ErrBatchImageQueueFailed
+					}
+				}
+				return BatchImageJobToPublic(existing), nil
+			}
+		}
 		return nil, err
 	}
 	if err := reserveBatchImageBalanceHold(ctx, s.BillingRepo, job, requestHash); err != nil {
@@ -626,6 +644,16 @@ func (s *BatchImagePublicService) ListModels(ctx context.Context, owner BatchIma
 	}
 
 	modelsByProvider := make(map[string]map[string]struct{})
+	groupHasConfiguredImagePrice := false
+	if owner.GroupID != nil && *owner.GroupID > 0 && s.GroupRepo != nil {
+		group, err := s.GroupRepo.GetByIDLite(ctx, *owner.GroupID)
+		if err != nil || group == nil {
+			return nil, ErrBatchImageSettlementPricingMissing
+		}
+		if price := group.GetImagePrice(s.defaultImageSize()); price != nil && *price >= 0 {
+			groupHasConfiguredImagePrice = true
+		}
+	}
 	for _, providerName := range batchImageProviderSelectionOrder("") {
 		provider, ok := s.ProviderRegistry.Get(providerName)
 		if !ok || provider == nil {
@@ -641,8 +669,20 @@ func (s *BatchImagePublicService) ListModels(ctx context.Context, owner BatchIma
 				continue
 			}
 			for _, model := range batchImageModelsFromAccountMapping(&account) {
-				if _, err := s.Pricing.BatchImageUnitPrice(ctx, &BatchImageJob{Provider: providerName, Model: model}); err != nil {
+				if providerName == BatchImageProviderOpenAI && !isGPTImage2BatchModel(account.GetMappedModel(model)) {
 					continue
+				}
+				// OpenAI image catalog entries may be priced per output token. A batch
+				// response has no token count, so it is unsafe to infer a per-image
+				// price from that catalog. OpenAI batch therefore requires an explicit
+				// group image price, which is the deployment contract for gpt-image-2.
+				if providerName == BatchImageProviderOpenAI && !groupHasConfiguredImagePrice {
+					continue
+				}
+				if !groupHasConfiguredImagePrice {
+					if _, err := s.Pricing.BatchImageUnitPrice(ctx, &BatchImageJob{Provider: providerName, Model: model}); err != nil {
+						continue
+					}
 				}
 				if !account.IsModelSupported(model) {
 					continue
@@ -861,6 +901,9 @@ func (s *BatchImagePublicService) validateSubmitRequest(req BatchImageSubmitRequ
 			expandedItems = append(expandedItems, expanded)
 		}
 	}
+	if req.Provider == BatchImageProviderOpenAI && !isGPTImage2BatchModel(req.Model) {
+		return req, ErrBatchImageInvalidModel
+	}
 	req.Items = expandedItems
 	return req, nil
 }
@@ -924,6 +967,9 @@ func batchImageRepeatSuffixWidth(count int) int {
 
 func maxBatchImageReferenceImagesForModel(model string) int {
 	model = strings.ToLower(strings.TrimSpace(model))
+	if strings.HasPrefix(model, "gpt-image-") {
+		return 1
+	}
 	if strings.Contains(model, "pro-image") {
 		return 14
 	}
@@ -955,6 +1001,9 @@ func (s *BatchImagePublicService) selectProviderAndAccount(ctx context.Context, 
 			if !account.IsSchedulable() || !account.IsModelSupported(model) {
 				continue
 			}
+			if providerName == BatchImageProviderOpenAI && !isGPTImage2BatchModel(account.GetMappedModel(model)) {
+				continue
+			}
 			if provider.SupportsAccount(&account) {
 				return provider, &account, nil
 			}
@@ -976,6 +1025,16 @@ func (s *BatchImagePublicService) listCandidateAccounts(ctx context.Context, gro
 	return s.AccountRepo.ListSchedulableByPlatform(ctx, platform)
 }
 
+func isBatchImageGroupPlatform(platform string) bool {
+	return platform == PlatformGemini || platform == PlatformOpenAI
+}
+
+// isGPTImage2BatchModel keeps this emulated OpenAI batch implementation scoped
+// to the one model whose pricing and upstream behaviour it is configured for.
+func isGPTImage2BatchModel(model string) bool {
+	return strings.EqualFold(strings.TrimSpace(model), "gpt-image-2")
+}
+
 func (s *BatchImagePublicService) ensureGroupAllowsBatchImage(ctx context.Context, groupID *int64) error {
 	if groupID == nil || *groupID <= 0 {
 		return nil
@@ -990,7 +1049,7 @@ func (s *BatchImagePublicService) ensureGroupAllowsBatchImage(ctx context.Contex
 	if !group.AllowBatchImageGeneration {
 		return ErrBatchImageGroupDisabled
 	}
-	if group.Platform != PlatformGemini {
+	if !isBatchImageGroupPlatform(group.Platform) {
 		return ErrBatchImageGroupDisabled
 	}
 	return nil
@@ -1045,6 +1104,13 @@ func (s *BatchImagePublicService) resolvePricingSnapshot(ctx context.Context, ow
 		}
 	}
 	if unit < 0 {
+		// The batch result contains generated images but no billable image-token
+		// count. Do not treat a catalog's per-token image price as a per-image
+		// amount: that would under-hold and under-bill by orders of magnitude.
+		// OpenAI batch groups must declare their fixed per-image group price.
+		if provider == BatchImageProviderOpenAI {
+			return nil, ErrBatchImageSettlementPricingMissing
+		}
 		if s.Pricing == nil {
 			return nil, ErrBatchImageSettlementPricingMissing
 		}
@@ -1053,6 +1119,12 @@ func (s *BatchImagePublicService) resolvePricingSnapshot(ctx context.Context, ow
 			return nil, ErrBatchImageSettlementPricingMissing
 		}
 		unit = resolvedUnit
+	}
+	if provider == BatchImageProviderOpenAI {
+		// The gpt-image-2 groups use their configured image price as the final
+		// per-output price. Never silently apply the generic batch discount here:
+		// it would turn the configured 0.05/0.12 rates into undercharges.
+		discountMultiplier = 1
 	}
 	// 定价不变式：hold 比例不得低于 discount 比例，否则成功率足够高时
 	// actualCost > holdAmount，结算永远失败、冻结余额无法解冻。
@@ -1088,7 +1160,8 @@ func (s *BatchImagePublicService) resolvePricingSnapshot(ctx context.Context, ow
 }
 
 func (s *BatchImagePublicService) enabled() bool {
-	return s != nil && s.Repo != nil && s.AccountRepo != nil && s.Config != nil && s.Config.BatchImage.Enabled
+	return s != nil && s.Repo != nil && s.AccountRepo != nil && s.Config != nil &&
+		s.Config.BatchImage.Enabled && s.Config.BatchImage.QueueEnabled
 }
 
 func (s *BatchImagePublicService) invalidateAuthCache(ctx context.Context, userID int64) {
@@ -1258,10 +1331,12 @@ func HashBatchImageSubmitRequest(req BatchImageSubmitRequest) string {
 
 func batchImageProviderPlatform(provider string) string {
 	switch provider {
+	case BatchImageProviderOpenAI:
+		return PlatformOpenAI
 	case BatchImageProviderGeminiAPI, BatchImageProviderVertex:
 		return PlatformGemini
 	default:
-		return PlatformGemini
+		return ""
 	}
 }
 
@@ -1269,7 +1344,7 @@ func batchImageProviderSelectionOrder(requestedProvider string) []string {
 	if strings.TrimSpace(requestedProvider) != "" {
 		return []string{strings.TrimSpace(requestedProvider)}
 	}
-	return []string{BatchImageProviderGeminiAPI, BatchImageProviderVertex}
+	return []string{BatchImageProviderGeminiAPI, BatchImageProviderVertex, BatchImageProviderOpenAI}
 }
 
 func batchImageModelsFromAccountMapping(account *Account) []string {
@@ -1313,6 +1388,7 @@ func defaultBatchImageModelCandidates() []string {
 		"gemini-3.1-flash-image",
 		"gemini-3.1-flash-image-preview",
 		"gemini-3.1-flash-lite-image",
+		"gpt-image-2",
 	}
 }
 

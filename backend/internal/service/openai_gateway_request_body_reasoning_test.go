@@ -409,15 +409,17 @@ func TestNormalizeOpenAIResponsesWebSocketCompatibilityBodyStripsReasoningConten
 	require.NoError(t, err)
 	require.False(t, changed)
 	require.JSONEq(t, string(body), string(normalized))
+}
+
 func TestNormalizeDeepSeekReasoningEffortRequestBody_RemovesUnsupportedValues(t *testing.T) {
 	account := &Account{Platform: PlatformDeepseek}
 	tests := []struct {
-		name       string
-		body       string
-		changed    bool
-		wantEffort bool
+		name          string
+		body          string
+		changed       bool
+		wantEffort    bool
 		wantReasoning bool
-		wantFlat   bool
+		wantFlat      bool
 	}{
 		{name: "nested minimal", body: `{"reasoning":{"effort":"minimal"}}`, changed: true},
 		{name: "nested max with other fields", body: `{"reasoning":{"effort":"max","summary":"auto"}}`, changed: true, wantReasoning: true},
