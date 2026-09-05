@@ -630,7 +630,7 @@ func TestAdminService_CreateGroup_DisablesBatchImageWhenImageGenerationDisabled(
 	require.False(t, group.AllowBatchImageGeneration)
 }
 
-func TestAdminService_CreateGroup_DisablesBatchImageForNonGeminiPlatform(t *testing.T) {
+func TestAdminService_CreateGroup_AllowsBatchImageForOpenAIPlatform(t *testing.T) {
 	repo := &groupRepoStubForAdmin{}
 	svc := &adminServiceImpl{groupRepo: repo}
 
@@ -646,8 +646,8 @@ func TestAdminService_CreateGroup_DisablesBatchImageForNonGeminiPlatform(t *test
 	require.NotNil(t, group)
 	require.NotNil(t, repo.created)
 	require.True(t, repo.created.AllowImageGeneration)
-	require.False(t, repo.created.AllowBatchImageGeneration)
-	require.False(t, group.AllowBatchImageGeneration)
+	require.True(t, repo.created.AllowBatchImageGeneration)
+	require.True(t, group.AllowBatchImageGeneration)
 }
 
 // TestAdminService_UpdateGroup_WithImagePricing 测试更新分组时 ImagePrice 字段正确更新
@@ -840,7 +840,7 @@ func TestAdminService_UpdateGroup_DisablesBatchImageWhenImageGenerationDisabled(
 	require.False(t, group.AllowBatchImageGeneration)
 }
 
-func TestAdminService_UpdateGroup_DisablesBatchImageWhenPlatformChangesFromGemini(t *testing.T) {
+func TestAdminService_UpdateGroup_PreservesBatchImageWhenPlatformChangesToOpenAI(t *testing.T) {
 	existingGroup := &Group{
 		ID:                        1,
 		Name:                      "existing-gemini",
@@ -859,8 +859,8 @@ func TestAdminService_UpdateGroup_DisablesBatchImageWhenPlatformChangesFromGemin
 	require.NotNil(t, group)
 	require.NotNil(t, repo.updated)
 	require.Equal(t, PlatformOpenAI, repo.updated.Platform)
-	require.False(t, repo.updated.AllowBatchImageGeneration)
-	require.False(t, group.AllowBatchImageGeneration)
+	require.True(t, repo.updated.AllowBatchImageGeneration)
+	require.True(t, group.AllowBatchImageGeneration)
 }
 
 func TestAdminService_UpdateGroup_ClearsDescriptionWhenEmptyString(t *testing.T) {
