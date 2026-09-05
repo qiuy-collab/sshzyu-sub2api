@@ -225,7 +225,10 @@ Recommended production path:
 - Use a service account or Application Default Credentials for the Sub2API runtime.
 - Create one fixed Cloud Storage bucket for batch image input and output, then grant the runtime and Vertex service agent the minimum required bucket permissions.
 - Configure Sub2API with the project id, location, managed bucket, provider account, model whitelist, and pricing.
-- Enable `BATCH_IMAGE_ENABLED` globally, enable image generation on the intended Gemini group, then enable `allow_batch_image_generation` for that group. Non-Gemini groups are not eligible for batch image generation, and the admin UI only shows the batch image group switch after image generation is enabled on a Gemini group.
+- Enable `BATCH_IMAGE_ENABLED` and `BATCH_IMAGE_QUEUE_ENABLED` globally before any group is enabled. The server now rejects submissions unless both are enabled, preventing holds on jobs that no worker can consume.
+- Enable image generation and `allow_batch_image_generation` on the intended group. Gemini and OpenAI groups are eligible. For OpenAI batch, only the exact mapped model `gpt-image-2` is accepted.
+- OpenAI batch is executed by Sub2API workers through the OpenAI-compatible Images API (reference images use `/v1/images/edits`; prompt-only items use `/v1/images/generations`), rather than an upstream batch endpoint. Its private input and JSONL output files are stored under `pricing.data_dir/batch-image/openai`; every application instance that can run a batch worker must mount this as the same shared read/write storage. A single-instance Docker deployment's persistent `/app/data` volume meets this requirement; multiple hosts or pods need shared persistent storage at that path.
+- Configure each `gpt-image-2` group with an explicit 1K image price. That configured value is the final per-image batch price: it is **not** multiplied by the generic batch discount. Therefore use `0.05` for the 1K group and `0.12` for the 124K group, with an effective group/account image rate multiplier of `1.0`.
 
 API-key path:
 

@@ -25,6 +25,13 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		require.ErrorIs(t, err, ErrBatchImageDisabled)
 	})
 
+	t.Run("rejects when queue runtime is disabled", func(t *testing.T) {
+		svc, _, _, _, _ := newTestBatchImagePublicService(true)
+		svc.Config.BatchImage.QueueEnabled = false
+		_, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "")
+		require.ErrorIs(t, err, ErrBatchImageDisabled)
+	})
+
 	t.Run("accepts valid request stores refs and enqueues once", func(t *testing.T) {
 		svc, repo, queue, gemini, _ := newTestBatchImagePublicService(true)
 		req := validBatchImageSubmitRequest()
@@ -132,6 +139,50 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		require.InDelta(t, 0.1608, *job.HoldAmount, 1e-12)
 	})
 
+	t.Run("uses OpenAI configured price as final batch price", func(t *testing.T) {
+		svc, repo, _, _, _ := newTestBatchImagePublicService(true)
+		groupID := int64(16)
+		imagePrice := 0.05
+		svc.GroupRepo = &publicBatchImageGroupRepo{groups: map[int64]*Group{
+			groupID: {
+				ID:                           groupID,
+				Platform:                     PlatformOpenAI,
+				RateMultiplier:               1,
+				AllowImageGeneration:         true,
+				AllowBatchImageGeneration:    true,
+				ImagePrice1K:                 &imagePrice,
+				BatchImageDiscountMultiplier: 0.5,
+				BatchImageHoldMultiplier:     0.6,
+			},
+		}}
+		openAI := &publicBatchImageProvider{name: BatchImageProviderOpenAI}
+		accountRepo := svc.AccountRepo.(*publicBatchImageAccountRepo)
+		accountRepo.accounts = []Account{{
+			ID:          404,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Schedulable: true,
+			Credentials: map[string]any{
+				"api_key":       "test-secret",
+				"model_mapping": map[string]any{"gpt-image-2": "gpt-image-2"},
+			},
+		}}
+		svc.ProviderRegistry = NewBatchImageProviderRegistry(openAI)
+		req := validBatchImageSubmitRequest()
+		req.Provider = BatchImageProviderOpenAI
+		req.Model = "gpt-image-2"
+
+		got, err := svc.Submit(ctx, BatchImageOwner{UserID: 11, APIKeyID: 22, GroupID: &groupID}, req, "")
+		require.NoError(t, err)
+		require.InDelta(t, 0.10, got.EstimatedCost, 1e-12)
+		job := repo.jobs[got.ID]
+		require.InDelta(t, 0.05, job.BaseUnitPrice, 1e-12)
+		require.InDelta(t, 1.0, job.BatchDiscountMultiplier, 1e-12)
+		require.InDelta(t, 0.05, job.BillableUnitPrice, 1e-12)
+		require.InDelta(t, 0.05, job.HoldUnitPrice, 1e-12)
+	})
+
 	t.Run("pricing missing rejects before provider submit", func(t *testing.T) {
 		svc, repo, queue, gemini, _ := newTestBatchImagePublicService(true)
 		svc.Pricing = &fakeBatchImagePricingResolver{err: ErrBatchImageSettlementPricingMissing}
@@ -222,6 +273,7 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 			{name: "empty_prompt", mutate: func(r *BatchImageSubmitRequest) { r.Items[0].Prompt = " " }, want: ErrBatchImageInvalidItems},
 			{name: "prompt_too_long", mutate: func(r *BatchImageSubmitRequest) { r.Items[0].Prompt = strings.Repeat("x", 9) }, want: ErrBatchImagePromptTooLong},
 			{name: "unsupported_provider", mutate: func(r *BatchImageSubmitRequest) { r.Provider = "other" }, want: ErrBatchImageUnsupportedProvider},
+			{name: "openai_rejects_non_gpt_image_2", mutate: func(r *BatchImageSubmitRequest) { r.Provider = BatchImageProviderOpenAI; r.Model = "gpt-image-3" }, want: ErrBatchImageInvalidModel},
 			{name: "vertex_rejects_2k", mutate: func(r *BatchImageSubmitRequest) { r.Provider = BatchImageProviderVertex; r.ImageSize = "2K" }, want: ErrBatchImageInvalidItems},
 			{name: "too_many_outputs_per_item", mutate: func(r *BatchImageSubmitRequest) {
 				r.Items[0].OutputCount = 5
@@ -733,6 +785,7 @@ func newTestBatchImagePublicService(enabled bool) (*BatchImagePublicService, *fa
 		AuthCache:   &fakeBatchImageAuthCacheInvalidator{},
 		Config: &config.Config{BatchImage: config.BatchImageConfig{
 			Enabled:                 enabled,
+			QueueEnabled:            enabled,
 			MaxItemsPerJobDefault:   2,
 			MaxPromptCharsPerItem:   8,
 			DefaultResponseMimeType: "image/png",
