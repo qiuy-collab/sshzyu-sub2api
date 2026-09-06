@@ -47,6 +47,9 @@ export interface BatchImageJob {
   status: BatchImageStatus
   model: string
   provider: string
+  image_size?: string
+  aspect_ratio?: string
+  response_mime_type?: string
   item_count: number
   success_count: number
   fail_count: number
@@ -92,6 +95,9 @@ export interface BatchImageModel {
   id: string
   object: string
   provider: string
+  supported_image_sizes?: string[]
+  supported_mime_types?: string[]
+  supports_custom_dimensions?: boolean
 }
 
 export interface BatchImageModelsResponse {
@@ -149,6 +155,21 @@ export async function submitBatchImageJob(
   })
   if (!response.ok) throw await parseBatchImageError(response)
   return response.json()
+}
+
+export async function getBatchImageRetryInput(apiKey: string, batchId: string): Promise<BatchImageSubmitRequest> {
+  const response = await fetch(buildGatewayUrl(`/v1/images/batches/${encodeURIComponent(batchId)}/items?retry_input=true`), {
+    headers: authHeaders(apiKey), cache: 'no-store',
+  })
+  if (!response.ok) throw await parseBatchImageError(response)
+  const body = await response.json()
+  // Older backends ignore unknown query parameters. Never fall back to previews.
+  if (!body.retry_request || !Array.isArray(body.retry_request.items)) {
+    const error = new Error('Original retry input is unavailable')
+    ;(error as any).code = 'BATCH_IMAGE_RETRY_INPUT_UNAVAILABLE'
+    throw error
+  }
+  return body.retry_request
 }
 
 export async function getBatchImageJob(apiKey: string, batchId: string): Promise<BatchImageJob> {

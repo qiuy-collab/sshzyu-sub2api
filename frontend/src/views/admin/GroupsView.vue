@@ -985,7 +985,7 @@
               </div>
             </div>
           </div>
-          <div v-if="createForm.platform === 'gemini' && createForm.allow_image_generation" class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700">
+          <div v-if="supportsBatchImagePlatform(createForm.platform) && createForm.allow_image_generation" class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700">
             <label
               class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
             >
@@ -1032,10 +1032,10 @@
             </div>
           </div>
           <p
-            v-else-if="createForm.platform !== 'gemini'"
+            v-else-if="!supportsBatchImagePlatform(createForm.platform)"
             class="mt-4 border-t border-dashed border-gray-200 pt-4 text-xs text-gray-500 dark:border-dark-700 dark:text-gray-400"
           >
-            {{ t("admin.groups.imagePricing.batchGeminiOnlyHint") }}
+            {{ t("admin.groups.imagePricing.batchSupportedPlatformsHint") }}
           </p>
         </div>
 
@@ -2625,7 +2625,7 @@
               </div>
             </div>
           </div>
-          <div v-if="editForm.platform === 'gemini' && editForm.allow_image_generation" class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700">
+          <div v-if="supportsBatchImagePlatform(editForm.platform) && editForm.allow_image_generation" class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700">
             <label
               class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
             >
@@ -2672,10 +2672,10 @@
             </div>
           </div>
           <p
-            v-else-if="editForm.platform !== 'gemini'"
+            v-else-if="!supportsBatchImagePlatform(editForm.platform)"
             class="mt-4 border-t border-dashed border-gray-200 pt-4 text-xs text-gray-500 dark:border-dark-700 dark:text-gray-400"
           >
-            {{ t("admin.groups.imagePricing.batchGeminiOnlyHint") }}
+            {{ t("admin.groups.imagePricing.batchSupportedPlatformsHint") }}
           </p>
         </div>
 
@@ -4261,6 +4261,7 @@
 </template>
 
 <script setup lang="ts">
+import { supportsBatchImagePlatform } from "@/utils/batchImage";
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
@@ -5518,7 +5519,7 @@ const resetDisabledBatchImagePricing = (
     "platform" | "allow_image_generation" | "allow_batch_image_generation" | "batch_image_discount_multiplier" | "batch_image_hold_multiplier"
   >,
 ) => {
-  if (form.platform !== "gemini" || !form.allow_image_generation) {
+  if (!supportsBatchImagePlatform(form.platform) || !form.allow_image_generation) {
     form.allow_batch_image_generation = false;
   }
   if (!form.allow_batch_image_generation) {

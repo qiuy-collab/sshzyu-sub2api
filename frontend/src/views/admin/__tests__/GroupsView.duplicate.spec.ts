@@ -303,6 +303,31 @@ describe('GroupsView duplicate action', () => {
     wrapper.unmount()
   })
 
+  it.each(['openai', 'gemini'] as const)('preserves enabled batch image pricing when editing %s', async (platform) => {
+    listGroups.mockResolvedValueOnce({
+      items: [{ ...sourceGroup, platform, allow_image_generation: true,
+        allow_batch_image_generation: true, batch_image_discount_multiplier: 0.7,
+        batch_image_hold_multiplier: 0.8 }],
+      total: 1, page: 1, page_size: 20, pages: 1
+    })
+    updateGroup.mockResolvedValueOnce(sourceGroup)
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'common.edit')!.trigger('click')
+    await flushPromises()
+    const form = wrapper.get('#edit-group-form')
+    expect(form.text()).toContain('admin.groups.imagePricing.allowBatchImageGeneration')
+    expect(form.text()).not.toContain('admin.groups.imagePricing.batchSupportedPlatformsHint')
+    await form.trigger('submit')
+    await flushPromises()
+    expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({
+      allow_batch_image_generation: true,
+      batch_image_discount_multiplier: 0.7,
+      batch_image_hold_multiplier: 0.8
+    }))
+    wrapper.unmount()
+  })
+
   it('shows the standardized API message when updating a group fails', async () => {
     updateGroup.mockRejectedValueOnce({
       status: 409,

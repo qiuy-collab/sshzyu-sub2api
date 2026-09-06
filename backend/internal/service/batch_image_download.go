@@ -434,8 +434,16 @@ func ExtractBatchImagePartsFromResultLine(line []byte) (*BatchImageLineImages, e
 		return nil, ErrBatchImageIndexParseFailed.WithCause(fmt.Errorf("missing custom id"))
 	}
 	out := &BatchImageLineImages{CustomID: customID}
-	out.Images = append(out.Images, extractBatchImageInlineImages(batchImageNestedAny(obj, "response", "candidates"))...)
-	out.Images = append(out.Images, extractBatchImageInlineImages(obj["candidates"])...)
+	images, internal, err := batchImageInternalImages(obj)
+	if err != nil {
+		return nil, ErrBatchImageIndexParseFailed.WithCause(err)
+	}
+	if internal {
+		out.Images = images
+	} else {
+		out.Images = append(out.Images, extractBatchImageInlineImages(batchImageNestedAny(obj, "response", "candidates"))...)
+		out.Images = append(out.Images, extractBatchImageInlineImages(obj["candidates"])...)
+	}
 	if len(out.Images) > 0 {
 		return out, nil
 	}
@@ -444,7 +452,7 @@ func ExtractBatchImagePartsFromResultLine(line []byte) (*BatchImageLineImages, e
 		out.ErrorMessage = truncateBatchImageMessage(message, batchImageMaxErrorMessageLength)
 		return out, nil
 	}
-	if _, hasResponse := obj["response"]; hasResponse || batchImageHasCandidates(obj) {
+	if _, hasResponse := obj["response"]; internal || hasResponse || batchImageHasCandidates(obj) {
 		out.ErrorCode = "EMPTY_IMAGE_OUTPUT"
 		out.ErrorMessage = "provider response contained no image output"
 		return out, nil
