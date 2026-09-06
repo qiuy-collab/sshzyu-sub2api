@@ -143,6 +143,8 @@ func (h *BatchImageHandler) Models(c *gin.Context) {
 }
 
 func (h *BatchImageHandler) Items(c *gin.Context) {
+	// Retry inputs may contain private inline images; never cache this response.
+	c.Header("Cache-Control", "no-store")
 	owner, ok := batchImageOwnerFromContext(c)
 	if !ok {
 		batchImageError(c, infraerrors.New(http.StatusUnauthorized, "API_KEY_REQUIRED", "API key is required"))
@@ -150,9 +152,10 @@ func (h *BatchImageHandler) Items(c *gin.Context) {
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	got, err := h.service.ListItems(c.Request.Context(), owner, c.Param("id"), service.BatchImageItemsQuery{
-		Status: c.Query("status"),
-		Limit:  limit,
-		Cursor: c.Query("cursor"),
+		RetryInput: c.Query("retry_input") == "true",
+		Status:     c.Query("status"),
+		Limit:      limit,
+		Cursor:     c.Query("cursor"),
 	})
 	if err != nil {
 		batchImageError(c, err)

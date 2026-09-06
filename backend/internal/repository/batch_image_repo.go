@@ -385,6 +385,18 @@ WHERE batch_id = $1`, batchID, toStatus, now, opts.ErrorCode, opts.ErrorMessage)
 		return err
 	}
 
+	// Finalize only unprocessed items in the same transaction as the parent.
+	// Completed results must survive cancellation; a failed item update must
+	// roll back the parent transition rather than leave pending children behind.
+	if toStatus == service.BatchImageJobStatusCancelled {
+		if _, err := sqlq.ExecContext(ctx, `
+UPDATE batch_image_items
+SET status = 'cancelled'
+WHERE job_id = $1 AND status = 'pending'`, batchID); err != nil {
+			return err
+		}
+	}
+
 	if opts.EventType != "" {
 		return appendBatchImageEventWithSQL(ctx, sqlq, batchID, opts.EventType, opts.EventPayload)
 	}

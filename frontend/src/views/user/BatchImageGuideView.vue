@@ -471,6 +471,17 @@
                   >
                     {{ itemResultLabel(item) }}
                   </span>
+                  <details class="mt-1 text-left" data-testid="item-full-result">
+                    <summary class="cursor-pointer rounded text-center text-xs text-primary-600 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 dark:text-primary-400">
+                      {{ t('batchImage.detail.viewFullResult') }}
+                    </summary>
+                    <div
+                      class="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-3 text-left text-xs leading-5 text-gray-700 select-text [overflow-wrap:anywhere] focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 dark:bg-dark-800 dark:text-gray-300"
+                      tabindex="0"
+                      role="region"
+                      :aria-label="t('batchImage.detail.fullResult', { id: item.custom_id })"
+                    >{{ itemFullResult(item) }}</div>
+                  </details>
                 </td>
               </tr>
             </tbody>
@@ -555,11 +566,11 @@
             <label class="input-label">API Key</label>
             <select v-model.number="form.apiKeyId" class="input" :disabled="loadingKeys">
               <option :value="0">{{ loadingKeys ? t('batchImage.create.loadingKeys') : t('batchImage.create.selectKeyPlaceholder') }}</option>
-              <option v-for="key in geminiApiKeys" :key="key.id" :value="key.id">
-                {{ key.name }} · {{ key.group?.name || 'Gemini' }}
+              <option v-for="key in batchImageApiKeys" :key="key.id" :value="key.id">
+                {{ key.name }} · {{ key.group?.name || key.group?.platform }}
               </option>
             </select>
-            <p v-if="!loadingKeys && geminiApiKeys.length === 0" class="input-hint text-amber-600 dark:text-amber-400">
+            <p v-if="!loadingKeys && batchImageApiKeys.length === 0" class="input-hint text-amber-600 dark:text-amber-400">
               {{ t('batchImage.create.noKeysHint') }}
             </p>
           </div>
@@ -583,18 +594,25 @@
 
           <div>
             <label class="input-label">{{ t('batchImage.create.imageSize') }}</label>
-            <div class="input flex items-center bg-gray-50 text-gray-600 dark:bg-dark-900 dark:text-gray-300">
-              1K
-            </div>
-            <p class="input-hint">{{ t('batchImage.create.imageSizeHint') }}</p>
+            <select v-if="isOpenAIImage2" v-model="form.imageSize" class="input" data-testid="image-size" :aria-label="t('batchImage.create.imageSize')">
+              <option v-for="size in imageSizeOptions" :key="size" :value="size">{{ size }}</option>
+            </select>
+            <div v-else class="input flex items-center bg-gray-50 text-gray-600 dark:bg-dark-900 dark:text-gray-300">1K</div>
+            <p class="input-hint">{{ t(isOpenAIImage2 ? 'batchImage.create.openaiImageSizeHint' : 'batchImage.create.imageSizeHint') }}</p>
+          </div>
+
+          <div v-if="isOpenAIImage2">
+            <label class="input-label">{{ t('batchImage.create.aspectRatio') }}</label>
+            <select v-model="form.aspectRatio" class="input" data-testid="aspect-ratio" :aria-label="t('batchImage.create.aspectRatio')">
+              <option v-for="[ratio, pixels] in aspectRatioOptions" :key="ratio" :value="ratio">{{ ratio }} · {{ pixels }}</option>
+            </select>
+            <p class="input-hint">{{ t('batchImage.create.openaiDimensionsHint') }}</p>
           </div>
 
           <div>
             <label class="input-label">{{ t('batchImage.create.outputFormat') }}</label>
             <select v-model="form.responseMimeType" class="input">
-              <option value="image/png">PNG</option>
-              <option value="image/jpeg">JPEG</option>
-              <option value="image/webp">WebP</option>
+              <option v-for="mime in outputMimeOptions" :key="mime" :value="mime">{{ mime === 'image/webp' ? 'WebP' : mime.slice(6).toUpperCase() }}</option>
             </select>
           </div>
 
@@ -707,7 +725,7 @@
       <template #footer>
         <div class="flex justify-end gap-3">
           <button type="button" class="btn btn-secondary" :disabled="submitting" @click="closeCreateModal">{{ t('common.cancel') }}</button>
-	          <button type="button" class="btn btn-primary inline-flex min-w-[120px] justify-center" :disabled="submitting || loadingModels || (parsedItems.length === 0 && !promptDraft.trim()) || !selectedApiKey || !form.model" @click="submitJob">
+	          <button type="button" class="btn btn-primary inline-flex min-w-[120px] justify-center" :disabled="submitting || loadingModels || (parsedItems.length === 0 && !promptDraft.trim()) || !selectedApiKey || !form.model || !validImageSpecs" @click="submitJob">
             <Icon v-if="submitting" name="refresh" size="sm" class="mr-2 animate-spin" />
             {{ submitting ? t('common.submitting') : t('batchImage.actions.submitJob') }}
           </button>
@@ -761,6 +779,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import SearchInput from '@/components/common/SearchInput.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { batchImageMimeTypes, keyAllowsBatchImage, openAIImageSizes } from '@/utils/batchImage'
 import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize, setPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useAppStore } from '@/stores/app'
@@ -771,6 +790,7 @@ import {
   downloadBatchImageZip,
   getBatchImageItemContent,
   getBatchImageJob,
+  getBatchImageRetryInput,
   listBatchImageJobs,
   listBatchImageItems,
   listBatchImageModels,
@@ -786,7 +806,7 @@ import {
 import type { ApiKey } from '@/types'
 import type { Column } from '@/components/common/types'
 
-type BatchImageJobRow = Pick<BatchImageJob, 'id' | 'task_name' | 'parent_batch_id' | 'status' | 'model' | 'provider' | 'item_count' | 'success_count' | 'fail_count' | 'estimated_cost' | 'hold_amount' | 'actual_cost' | 'created_at' | 'downloaded_at'> & {
+type BatchImageJobRow = Pick<BatchImageJob, 'id' | 'task_name' | 'parent_batch_id' | 'status' | 'model' | 'provider' | 'item_count' | 'success_count' | 'fail_count' | 'estimated_cost' | 'hold_amount' | 'actual_cost' | 'created_at' | 'downloaded_at' | 'image_size' | 'aspect_ratio' | 'response_mime_type'> & {
   api_key_id: number
   api_key_name: string
   child_count: number
@@ -873,6 +893,8 @@ const form = reactive({
   taskName: '',
   model: '',
   responseMimeType: 'image/png',
+  imageSize: '1K',
+  aspectRatio: '1:1',
 })
 
 const filters = reactive({
@@ -920,7 +942,9 @@ const itemPreviewUrls = reactive<Record<string, string>>({})
 const previewLoadingIds = ref(new Set<string>())
 const previewErrorIds = ref(new Set<string>())
 const previewImageItem = ref<BatchImageItem | null>(null)
-const availableBatchImageModels = ref<Array<{ value: string; label: string }>>([])
+const availableBatchImageModels = ref<Array<{
+  value: string; label: string; supported_image_sizes?: string[]; supported_mime_types?: string[]
+}>>([])
 const modelLoadError = ref('')
 const openMoreJobId = ref('')
 const moreMenuStyle = ref<Record<string, string>>({})
@@ -937,27 +961,49 @@ let promptPopoverCloseTimer: ReturnType<typeof setTimeout> | null = null
 let promptPopoverOpenTimer: ReturnType<typeof setTimeout> | null = null
 let activePromptPopoverTarget: HTMLElement | null = null
 
-const geminiApiKeys = computed(() =>
-  apiKeys.value.filter((key) =>
-    key.status === 'active' &&
-    key.group?.platform === 'gemini' &&
-    key.group?.allow_batch_image_generation === true,
-  ),
+const batchImageApiKeys = computed(() =>
+  apiKeys.value.filter(keyAllowsBatchImage),
 )
 
 const selectedApiKey = computed(() =>
-  geminiApiKeys.value.find((key) => key.id === Number(form.apiKeyId)) || null,
+  batchImageApiKeys.value.find((key) => key.id === Number(form.apiKeyId)) || null,
 )
+
+const isOpenAIImage2 = computed(() => selectedApiKey.value?.group?.platform === 'openai' && form.model === 'gpt-image-2')
+const selectedModelSpecs = computed(() => availableBatchImageModels.value.find(model => model.value === form.model))
+const imageSizeOptions = computed(() => Object.keys(openAIImageSizes).filter(size =>
+  !selectedModelSpecs.value?.supported_image_sizes || selectedModelSpecs.value.supported_image_sizes.includes(size),
+))
+const aspectRatioOptions = computed(() => Object.entries(openAIImageSizes[form.imageSize] || {}))
+const outputMimeOptions = computed(() => batchImageMimeTypes.filter(mime =>
+  !isOpenAIImage2.value || !selectedModelSpecs.value?.supported_mime_types || selectedModelSpecs.value.supported_mime_types.includes(mime),
+))
+const validImageSpecs = computed(() => !isOpenAIImage2.value || (
+  imageSizeOptions.value.includes(form.imageSize) &&
+  !!openAIImageSizes[form.imageSize]?.[form.aspectRatio] && outputMimeOptions.value.includes(form.responseMimeType)
+))
+watch([isOpenAIImage2, imageSizeOptions, outputMimeOptions], () => {
+  if (!isOpenAIImage2.value) {
+    form.imageSize = '1K'
+    form.aspectRatio = '1:1'
+    return
+  }
+  if (!imageSizeOptions.value.includes(form.imageSize)) form.imageSize = imageSizeOptions.value[0] || ''
+  if (!outputMimeOptions.value.includes(form.responseMimeType)) form.responseMimeType = outputMimeOptions.value[0] || ''
+})
+watch(aspectRatioOptions, options => {
+  if (!options.some(([ratio]) => ratio === form.aspectRatio)) form.aspectRatio = options[0]?.[0] || ''
+})
 
 const filteredApiKeys = computed(() => {
   const selectedFilterID = Number(filters.apiKeyId || 0)
-  if (!selectedFilterID) return geminiApiKeys.value
-  return geminiApiKeys.value.filter(key => key.id === selectedFilterID)
+  if (!selectedFilterID) return batchImageApiKeys.value
+  return batchImageApiKeys.value.filter(key => key.id === selectedFilterID)
 })
 
 const apiKeyFilterOptions = computed<SelectOption[]>(() => [
   { value: '', label: t('batchImage.filters.allApiKeys') },
-  ...geminiApiKeys.value.map(key => ({
+  ...batchImageApiKeys.value.map(key => ({
     value: String(key.id),
     label: key.name || `API Key #${key.id}`,
   })),
@@ -1060,6 +1106,7 @@ const parsedItems = computed<BatchImageSubmitItem[]>(() => {
 
 function referenceImageLimitForModel(model: string) {
   const normalized = String(model || '').toLowerCase()
+  if (normalized === 'gpt-image-2') return 1
   if (normalized.includes('pro-image')) return 14
   if (normalized.includes('flash-image')) return 3
   return 0
@@ -1067,7 +1114,7 @@ function referenceImageLimitForModel(model: string) {
 
 const agentInstruction = computed(() => `---
 name: sub2api-batch-image
-description: 当用户希望用 Gemini/Vertex 批量生成图片、批量跑提示词、下载批量生图结果、重试失败图片时使用。
+description: 当用户希望用 OpenAI 或 Gemini/Vertex 批量生成图片、批量跑提示词、下载批量生图结果、重试失败图片时使用。
 ---
 
 你是 Codex 中的批量生图执行 Agent。用户不需要手动填写页面表单；你应从当前聊天、用户给的文件、目录或上下文中整理任务名称、prompt 列表和输出目录，只有缺少关键决策时才向用户提问。
@@ -1128,7 +1175,7 @@ API 调用规范：
 - running 状态每约 60 秒查询一次，服务器压力大或大批量任务时可以更久；processing_results 等接近完成的状态可每 20 到 45 秒查询一次。
 - 任务完成后报告任务名、任务 id、成功数、失败数、实际扣费和保存路径。
 - 只下载成功图片。部分失败时，先展示失败 custom_id、错误码、错误来源和简要原因。
-- 重试只能重试失败项，不能重复提交已成功项。若历史任务没有保存失败项 prompt，必须告诉用户无法自动重试，并询问用户是否提供原 prompt。
+- 重试只能重试失败项，不能重复提交已成功项。必须使用完整原始 prompt、规格和参考图，不能把 prompt_preview 当作完整输入。可通过 GET /v1/images/batches/{id}/items?retry_input=true 读取受权限和保留期限制的失败原输入（当前仅支持 OpenAI 本地输入）。若不可恢复，必须要求用户重新提供原 prompt 和参考图，禁止静默改为文生图，也不能宣称完整重放。
 - 取消任务前必须提醒：已被系统索引为成功的图片仍会按成功项结算扣费，其余冻结金额会释放。
 - 图片预览按需加载；不要为了查看列表自动批量加载图片内容。`)
 
@@ -1243,10 +1290,10 @@ async function loadApiKeys() {
   try {
     const response = await keysAPI.list(1, 100, { status: 'active', sort_by: 'created_at', sort_order: 'desc' })
     apiKeys.value = response.items || []
-    if (!selectedApiKey.value && geminiApiKeys.value.length > 0) {
-      form.apiKeyId = geminiApiKeys.value[0].id
+    if (!selectedApiKey.value && batchImageApiKeys.value.length > 0) {
+      form.apiKeyId = batchImageApiKeys.value[0].id
     }
-    if (filters.apiKeyId && !geminiApiKeys.value.some(key => String(key.id) === filters.apiKeyId)) {
+    if (filters.apiKeyId && !batchImageApiKeys.value.some(key => String(key.id) === filters.apiKeyId)) {
       filters.apiKeyId = ''
     }
     if (!selectedApiKey.value) {
@@ -1266,7 +1313,10 @@ async function loadAvailableModels() {
   modelLoadError.value = ''
   availableBatchImageModels.value = []
   form.model = ''
-  if (!key) return
+  if (!key) {
+    loadingModels.value = false
+    return
+  }
 
   loadingModels.value = true
   try {
@@ -1274,13 +1324,12 @@ async function loadAvailableModels() {
     if (requestID !== modelRequestSeq) return
     const seen = new Set<string>()
     availableBatchImageModels.value = (result.data || [])
-      .map(model => String(model.id || '').trim())
+      .map(model => ({ ...model, value: String(model.id || '').trim(), label: String(model.id || '').trim() }))
       .filter((model) => {
-        if (!model || seen.has(model)) return false
-        seen.add(model)
+        if (!model.value || seen.has(model.value)) return false
+        seen.add(model.value)
         return true
       })
-      .map(model => ({ value: model, label: model }))
     form.model = availableBatchImageModels.value[0]?.value || ''
   } catch (error: any) {
     if (requestID !== modelRequestSeq) return
@@ -1330,6 +1379,9 @@ function toJobRow(job: BatchImageJob, key = selectedApiKey.value): BatchImageJob
     status: job.status,
     model: job.model,
     provider: job.provider,
+    image_size: job.image_size,
+    aspect_ratio: job.aspect_ratio,
+    response_mime_type: job.response_mime_type,
     item_count: job.item_count,
     success_count: job.success_count,
     fail_count: job.fail_count,
@@ -1569,7 +1621,9 @@ function closeCreateModal() {
 
 function resetCreateDraft() {
   form.taskName = ''
-  form.responseMimeType = 'image/png'
+  form.responseMimeType = outputMimeOptions.value[0] || 'image/png'
+  form.imageSize = isOpenAIImage2.value ? imageSizeOptions.value[0] || '' : '1K'
+  form.aspectRatio = '1:1'
   promptRows.value = []
   promptDraft.value = ''
   customIdDraft.value = ''
@@ -1588,7 +1642,7 @@ function closeDetail() {
 
 function keyForSelectedBatch(): ApiKey | null {
   if (selectedBatchApiKeyId.value) {
-    const key = geminiApiKeys.value.find(item => item.id === selectedBatchApiKeyId.value)
+    const key = batchImageApiKeys.value.find(item => item.id === selectedBatchApiKeyId.value)
     if (key) return key
   }
   return selectedApiKey.value
@@ -1627,7 +1681,7 @@ function validateForm(): boolean {
 async function submitJob() {
   if (submitting.value) return
   if (promptDraft.value.trim()) addPromptRow()
-  if (!validateForm()) return
+  if (!validateForm() || !validImageSpecs.value) return
   const key = requireApiKey()
   if (!key) return
 	  submitting.value = true
@@ -1637,7 +1691,8 @@ async function submitJob() {
 	      {
 	        model: form.model,
         task_name: form.taskName.trim() || defaultTaskName(),
-        image_size: '1K',
+        image_size: isOpenAIImage2.value ? form.imageSize : '1K',
+        ...(isOpenAIImage2.value ? { aspect_ratio: form.aspectRatio } : {}),
         response_mime_type: form.responseMimeType,
         items: parsedItems.value,
 	      },
@@ -1686,7 +1741,7 @@ async function refreshDetail() {
 
 function selectJob(batchId: string) {
   const row = batchJobs.value.find(job => job.id === batchId)
-  if (row?.api_key_id && geminiApiKeys.value.some(key => key.id === row.api_key_id)) {
+  if (row?.api_key_id && batchImageApiKeys.value.some(key => key.id === row.api_key_id)) {
     form.apiKeyId = row.api_key_id
     selectedBatchApiKeyId.value = row.api_key_id
   } else {
@@ -1735,14 +1790,14 @@ function isDownloadingJob(batchId: string) {
 }
 
 function applyJobApiKey(job: BatchImageJobRow | Pick<BatchImageJob, 'id'>) {
-  if ('api_key_id' in job && job.api_key_id && geminiApiKeys.value.some(key => key.id === job.api_key_id)) {
+  if ('api_key_id' in job && job.api_key_id && batchImageApiKeys.value.some(key => key.id === job.api_key_id)) {
     form.apiKeyId = job.api_key_id
   }
 }
 
 function apiKeyForJob(job: BatchImageJobRow | Pick<BatchImageJob, 'id'>): ApiKey | null {
   if ('api_key_id' in job && job.api_key_id) {
-    return geminiApiKeys.value.find(key => key.id === job.api_key_id) || null
+    return batchImageApiKeys.value.find(key => key.id === job.api_key_id) || null
   }
   return selectedApiKey.value
 }
@@ -1802,11 +1857,8 @@ async function retryFailedJob(job: BatchImageJobRow | BatchImageJob) {
   if (!key) return
   retryingBatchId.value = job.id
   try {
-    const sourceItems = await ensureItemsForRetry(key.key, job.id)
-    const failedItems = sourceItems
-      .filter(item => item.status === 'failed')
-      .map(item => ({ custom_id: retryCustomID(item.custom_id), prompt: String(item.prompt_preview || '').trim() }))
-      .filter(item => item.prompt)
+    const original = await getBatchImageRetryInput(key.key, job.id)
+    const failedItems = original.items.map(item => ({ ...item, custom_id: retryCustomID(item.custom_id) }))
     if (failedItems.length === 0) {
       appStore.showError(batchImageText('retryMissingPrompts'))
       return
@@ -1814,12 +1866,9 @@ async function retryFailedJob(job: BatchImageJobRow | BatchImageJob) {
     const retryJob = await submitBatchImageJob(
       key.key,
       {
-        model: job.model,
+        ...original,
         task_name: `${job.task_name || defaultTaskName()} ${t('batchImage.messages.retryTaskNameSuffix')}`,
         parent_batch_id: rootBatchIdForRetry(job),
-        provider: job.provider,
-        image_size: '1K',
-        response_mime_type: form.responseMimeType,
         items: failedItems,
       },
       `sub2api-ui-retry-${job.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
@@ -1836,18 +1885,14 @@ async function retryFailedJob(job: BatchImageJobRow | BatchImageJob) {
     void loadItems()
     startPolling()
   } catch (error: any) {
-    appStore.showError(batchImageErrorMessage(error, batchImageText('retryFailed')))
+    appStore.showError(error?.code === 'BATCH_IMAGE_RETRY_INPUT_UNAVAILABLE'
+      ? (locale.value.startsWith('zh')
+        ? '无法恢复原始输入（可能已过期清理或该模型暂不支持恢复）。重试已阻止，不会改为文生图。请新建任务，重新上传原参考图并填写原提示词。'
+        : 'Original input cannot be restored (expired, cleaned up, or unsupported provider). Retry is blocked, not converted to text-to-image. Create a new task and re-upload the original reference images and prompts.')
+      : batchImageErrorMessage(error, batchImageText('retryFailed')))
   } finally {
     retryingBatchId.value = ''
   }
-}
-
-async function ensureItemsForRetry(apiKey: string, batchId: string) {
-  if (selectedBatchId.value === batchId && items.value.length > 0) {
-    return items.value
-  }
-  const result = await listBatchImageItems(apiKey, batchId)
-  return result.data || []
 }
 
 function retryCustomID(customID: string) {
@@ -2368,6 +2413,12 @@ function itemResultLabel(item: BatchImageDetailItem) {
   if (item.status === 'failed') return t('batchImage.itemResult.noUsableImage')
   if (item.status === 'cancelled') return t('batchImage.itemResult.cancelled')
   return t('batchImage.itemResult.waiting')
+}
+
+function itemFullResult(item: BatchImageDetailItem) {
+  return [itemResultLabel(item), item.error?.code, item.error?.message]
+    .filter((value, index, values) => value && values.indexOf(value) === index)
+    .join('\n')
 }
 
 function itemResultClass(item: BatchImageDetailItem) {

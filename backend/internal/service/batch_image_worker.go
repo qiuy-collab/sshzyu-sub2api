@@ -162,9 +162,11 @@ func (w *BatchImageWorker) RunOnce(ctx context.Context) error {
 	// job 重投给其他 worker，并对支持续期的锁实现延长锁 TTL。
 	hbStop := make(chan struct{})
 	hbDone := make(chan struct{})
-	go w.runJobHeartbeat(ctx, reserved.BatchID, lock, hbStop, hbDone)
+	processCtx, cancelProcess := context.WithCancel(ctx)
+	defer cancelProcess()
+	go w.runJobHeartbeat(processCtx, reserved.BatchID, lock, hbStop, hbDone, cancelProcess)
 
-	result, err := w.processor.Process(ctx, reserved.BatchID)
+	result, err := w.processor.Process(processCtx, reserved.BatchID)
 	close(hbStop)
 	<-hbDone
 	if err != nil {
@@ -201,7 +203,7 @@ func (w *BatchImageWorker) heartbeatInterval() time.Duration {
 	return interval
 }
 
-func (w *BatchImageWorker) runJobHeartbeat(ctx context.Context, batchID string, lock BatchImageJobLock, stop <-chan struct{}, done chan<- struct{}) {
+func (w *BatchImageWorker) runJobHeartbeat(ctx context.Context, batchID string, lock BatchImageJobLock, stop <-chan struct{}, done chan<- struct{}, cancelProcess context.CancelFunc) {
 	defer close(done)
 	ticker := time.NewTicker(w.heartbeatInterval())
 	defer ticker.Stop()
@@ -224,6 +226,10 @@ func (w *BatchImageWorker) runJobHeartbeat(ctx context.Context, batchID string, 
 						zap.String("batch_id", batchID),
 						zap.Error(err),
 					)
+					// Ownership is uncertain. Stop dispatching paid requests before
+					// another instance acquires the expired lease.
+					cancelProcess()
+					return
 				}
 			}
 		}

@@ -72,6 +72,12 @@ deploy/sub2api-sudoers
 deploy/data/
 deploy/postgres_data/
 deploy/redis_data/
+# Local acceptance records may contain historical request metadata; never send to builder.
+deploy/local-run-logs/
+# Local-only service safety overrides are not release inputs.
+deploy/docker-compose.local-safety.yml
+# Host executable is not a Linux image build input.
+backend/server.exe
 
 # GoReleaser
 .goreleaser.yaml

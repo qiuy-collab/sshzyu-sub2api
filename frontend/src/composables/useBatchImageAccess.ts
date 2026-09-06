@@ -1,21 +1,13 @@
 import { computed, ref } from 'vue'
 import { keysAPI } from '@/api/keys'
 import { useAuthStore } from '@/stores/auth'
-import type { ApiKey } from '@/types'
+import { keyAllowsBatchImage } from '@/utils/batchImage'
 
 const loaded = ref(false)
 const loading = ref(false)
 const hasAllowedBatchImageKey = ref(false)
 let pendingLoad: Promise<boolean> | null = null
 const pageSize = 100
-
-function keyAllowsBatchImage(key: ApiKey): boolean {
-  return (
-    key.status === 'active' &&
-    key.group?.platform === 'gemini' &&
-    key.group?.allow_batch_image_generation === true
-  )
-}
 
 async function loadBatchImageAccess(force = false): Promise<boolean> {
   const authStore = useAuthStore()
