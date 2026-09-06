@@ -475,7 +475,19 @@ func ParseBatchImageResultLine(line []byte, lineNumber int) (*ParsedBatchImageRe
 		CustomID:         customID,
 		SourceLineNumber: lineNumber,
 	}
-	imageCount, mimeType := batchImageFindImageParts(obj)
+	images, internal, err := batchImageInternalImages(obj)
+	if err != nil {
+		return nil, ErrBatchImageIndexParseFailed.WithCause(fmt.Errorf("line %d: %w", lineNumber, err))
+	}
+	imageCount, mimeType := 0, ""
+	if internal {
+		imageCount = len(images)
+		if imageCount > 0 {
+			mimeType = images[0].MimeType
+		}
+	} else {
+		imageCount, mimeType = batchImageFindImageParts(obj)
+	}
 	if imageCount > 0 {
 		parsed.Status = BatchImageParsedStatusSucceeded
 		parsed.ImageCount = imageCount
@@ -491,7 +503,7 @@ func ParseBatchImageResultLine(line []byte, lineNumber int) (*ParsedBatchImageRe
 		return parsed, nil
 	}
 
-	if _, hasResponse := obj["response"]; hasResponse || batchImageHasCandidates(obj) {
+	if _, hasResponse := obj["response"]; internal || hasResponse || batchImageHasCandidates(obj) {
 		parsed.Status = BatchImageParsedStatusFailed
 		parsed.ErrorCode = "EMPTY_IMAGE_OUTPUT"
 		parsed.ErrorMessage = "provider response contained no image output"
@@ -502,6 +514,63 @@ func ParseBatchImageResultLine(line []byte, lineNumber int) (*ParsedBatchImageRe
 	parsed.ErrorCode = "PROVIDER_ITEM_FAILED"
 	parsed.ErrorMessage = "provider result line contained no image output"
 	return parsed, nil
+}
+
+// batch-image/v1 is a versioned internal contract, not a provider wire response.
+// Only unmarked historical output uses the legacy Gemini/Vertex parser.
+const batchImageInternalResultFormat = "batch-image/v1"
+
+type batchImageInternalResultLine struct {
+	Format   string                   `json:"format"`
+	Provider string                   `json:"provider"`
+	Key      string                   `json:"key"`
+	Images   []batchImageResultImage  `json:"images,omitempty"`
+	Error    *batchImageInternalError `json:"error,omitempty"`
+}
+
+type batchImageResultImage struct {
+	MimeType string `json:"mime_type"`
+	Data     string `json:"base64_data"`
+}
+
+// Shared by indexing and downloads so both consumers interpret the same images.
+// A marked line must never fall back to candidates/inlineData parsing.
+func batchImageInternalImages(obj map[string]any) ([]BatchImageInlineImage, bool, error) {
+	format, marked := obj["format"]
+	if !marked {
+		return nil, false, nil
+	}
+	if format != batchImageInternalResultFormat {
+		return nil, true, fmt.Errorf("unsupported batch image result format")
+	}
+	if batchImageMapString(obj, "provider") != BatchImageProviderOpenAI {
+		return nil, true, fmt.Errorf("unsupported internal batch image result provider")
+	}
+	if _, failed := obj["error"].(map[string]any); failed {
+		return nil, true, nil
+	}
+	raw, exists := obj["images"]
+	if !exists {
+		return nil, true, nil
+	}
+	entries, ok := raw.([]any)
+	if !ok {
+		return nil, true, fmt.Errorf("invalid internal batch image results")
+	}
+	images := make([]BatchImageInlineImage, 0, len(entries))
+	for _, entry := range entries {
+		image, ok := entry.(map[string]any)
+		if !ok {
+			return nil, true, fmt.Errorf("invalid internal batch image")
+		}
+		mime := batchImageMapString(image, "mime_type")
+		data := batchImageMapString(image, "base64_data")
+		if data == "" || !strings.HasPrefix(strings.ToLower(mime), "image/") {
+			return nil, true, fmt.Errorf("invalid internal batch image data or MIME type")
+		}
+		images = append(images, BatchImageInlineImage{MimeType: mime, Extension: batchImageFileExtension(mime), Base64Data: data})
+	}
+	return images, true, nil
 }
 
 func batchImageFindImageParts(obj map[string]any) (int, string) {
@@ -561,6 +630,9 @@ func batchImageFailureFromProviderFields(obj map[string]any) (string, string, bo
 	if errObj, ok := obj["error"].(map[string]any); ok {
 		message := batchImageFirstNonEmptyString(batchImageMapString(errObj, "message"), batchImageMapString(errObj, "details"))
 		code := batchImageFirstNonEmptyString(batchImageMapString(errObj, "code"), batchImageMapString(errObj, "status"))
+		if obj["format"] == batchImageInternalResultFormat && strings.HasPrefix(code, "OPENAI_BATCH_") {
+			return code, message, true
+		}
 		return batchImageMapFailureCode(code, message), message, true
 	}
 	return "", "", false

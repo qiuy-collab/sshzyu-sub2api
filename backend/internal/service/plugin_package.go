@@ -107,7 +107,12 @@ func (i *PluginPackageInstaller) Install(ctx context.Context, reader io.Reader, 
 	if err != nil {
 		return nil, fmt.Errorf("插件包不是有效的 ZIP: %w", err)
 	}
-	defer func() { _ = archive.Close() }()
+	archiveOpen := true
+	defer func() {
+		if archiveOpen {
+			_ = archive.Close()
+		}
+	}()
 	manifest, _, signatureStatus, err := i.inspectArchive(&archive.Reader)
 	if err != nil {
 		return nil, err
@@ -137,6 +142,12 @@ func (i *PluginPackageInstaller) Install(ctx context.Context, reader io.Reader, 
 	if err := i.extractArchive(ctx, &archive.Reader, manifest, extractPath); err != nil {
 		return nil, err
 	}
+	// zip.OpenReader keeps the upload archive open. Close it before moving the
+	// staging file: Windows does not permit renaming an open file, unlike Unix.
+	if err := archive.Close(); err != nil {
+		return nil, fmt.Errorf("关闭已校验插件包: %w", err)
+	}
+	archiveOpen = false
 	if err := os.Rename(extractPath, installPath); err != nil {
 		return nil, fmt.Errorf("提交插件安装目录: %w", err)
 	}
@@ -344,6 +355,11 @@ func (i *PluginPackageInstaller) extractArchive(ctx context.Context, archive *zi
 		}
 		if actual := hex.EncodeToString(hasher.Sum(nil)); actual != expectedHash {
 			return fmt.Errorf("插件文件哈希不匹配: %s", path)
+		}
+		// Windows ignores the mode passed to OpenFile. Apply it after closing the
+		// handle so executable plugin runtimes retain their manifest-approved mode.
+		if err := os.Chmod(destination, mode); err != nil {
+			return fmt.Errorf("set plugin file permissions %s: %w", path, err)
 		}
 	}
 	return nil

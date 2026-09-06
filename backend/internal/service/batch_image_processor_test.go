@@ -63,6 +63,51 @@ func TestParseBatchImageResultLine_SuccessShapes(t *testing.T) {
 	}
 }
 
+func TestBatchImageInternalResult_IndexAndDownload(t *testing.T) {
+	line := `{"format":"batch-image/v1","provider":"openai","key":"ok","images":[{"mime_type":"image/png","base64_data":"` + batchImageTestData + `"}]}`
+	parsed, err := ParseBatchImageResultLine([]byte(line), 3)
+	require.NoError(t, err)
+	require.Equal(t, BatchImageParsedStatusSucceeded, parsed.Status)
+	require.Equal(t, 1, parsed.ImageCount)
+	parts, err := ExtractBatchImagePartsFromResultLine([]byte(line))
+	require.NoError(t, err)
+	require.Len(t, parts.Images, 1)
+	require.Equal(t, batchImageTestData, parts.Images[0].Base64Data)
+	require.Equal(t, parsed.FileExtension, parts.Images[0].Extension)
+	repo := newFakeBatchImageRepository()
+	failed := `{"format":"batch-image/v1","provider":"openai","key":"bad","error":{"code":"SAFETY","message":"blocked"}}`
+	result, err := (&BatchImageResultIndexer{Repo: repo}).Index(context.Background(), &BatchImageJob{BatchID: "imgbatch_internal"}, &fakeProcessorProvider{result: line + "\n" + failed}, &Account{})
+	require.NoError(t, err)
+	require.Equal(t, 1, result.SuccessCount)
+	require.Equal(t, 1, result.FailCount)
+	failure, err := ExtractBatchImagePartsFromResultLine([]byte(failed))
+	require.NoError(t, err)
+	require.Equal(t, "SAFETY_BLOCKED", failure.ErrorCode)
+}
+
+func TestBatchImageInternalResult_RejectsMalformedAndNeverFallsBack(t *testing.T) {
+	for _, line := range []string{
+		`{"format":"batch-image/v2","provider":"openai","key":"x"}`,
+		`{"format":"batch-image/v1","provider":"gemini","key":"x"}`,
+		`{"format":"batch-image/v1","provider":"openai","key":"x","images":{}}`,
+		`{"format":"batch-image/v1","provider":"openai","key":"x","images":[{"mime_type":"text/plain","base64_data":"secret"}]}`,
+	} {
+		_, err := ParseBatchImageResultLine([]byte(line), 1)
+		require.ErrorIs(t, err, ErrBatchImageIndexParseFailed)
+		require.NotContains(t, err.Error(), "secret")
+		_, err = ExtractBatchImagePartsFromResultLine([]byte(line))
+		require.ErrorIs(t, err, ErrBatchImageIndexParseFailed)
+	}
+	line := `{"format":"batch-image/v1","provider":"openai","key":"x","response":{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"` + batchImageTestData + `"}}]}}]}}`
+	parsed, err := ParseBatchImageResultLine([]byte(line), 1)
+	require.NoError(t, err)
+	require.Equal(t, "EMPTY_IMAGE_OUTPUT", parsed.ErrorCode)
+	parts, err := ExtractBatchImagePartsFromResultLine([]byte(line))
+	require.NoError(t, err)
+	require.Empty(t, parts.Images)
+	require.Equal(t, "EMPTY_IMAGE_OUTPUT", parts.ErrorCode)
+}
+
 func TestParseBatchImageResultLine_FailureShapes(t *testing.T) {
 	tests := []struct {
 		name     string

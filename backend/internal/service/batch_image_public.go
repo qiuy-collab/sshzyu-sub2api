@@ -144,9 +144,10 @@ type BatchImagePublicError struct {
 }
 
 type BatchImagePublicItemsResponse struct {
-	Object  string                 `json:"object"`
-	Data    []BatchImagePublicItem `json:"data"`
-	HasMore bool                   `json:"has_more"`
+	RetryRequest *BatchImageSubmitRequest `json:"retry_request,omitempty"`
+	Object       string                   `json:"object"`
+	Data         []BatchImagePublicItem   `json:"data"`
+	HasMore      bool                     `json:"has_more"`
 }
 
 type BatchImagePublicListResponse struct {
@@ -156,9 +157,12 @@ type BatchImagePublicListResponse struct {
 }
 
 type BatchImagePublicModel struct {
-	ID       string `json:"id"`
-	Object   string `json:"object"`
-	Provider string `json:"provider"`
+	ID                       string   `json:"id"`
+	Object                   string   `json:"object"`
+	Provider                 string   `json:"provider"`
+	SupportedImageSizes      []string `json:"supported_image_sizes,omitempty"`
+	SupportedMimeTypes       []string `json:"supported_mime_types,omitempty"`
+	SupportsCustomDimensions bool     `json:"supports_custom_dimensions,omitempty"`
 }
 
 type BatchImagePublicModelsResponse struct {
@@ -177,9 +181,10 @@ type BatchImageJobsQuery struct {
 }
 
 type BatchImageItemsQuery struct {
-	Status string
-	Limit  int
-	Cursor string
+	RetryInput bool
+	Status     string
+	Limit      int
+	Cursor     string
 }
 
 func NewBatchImagePublicService(repo BatchImageRepository, accountRepo AccountRepository, groupRepo GroupRepository, userGroupRateRepo UserGroupRateRepository, queue BatchImageQueue, pricing *BatchImageModelPricingResolver, billingRepo UsageBillingRepository, authCache APIKeyAuthCacheInvalidator, cfg *config.Config) *BatchImagePublicService {
@@ -205,7 +210,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	if err != nil {
 		return nil, err
 	}
-	// 与 ListModels 使用同一鉴权谓词（AllowBatchImageGeneration + Platform==Gemini），
+	// 与 ListModels 使用同一鉴权谓词（AllowBatchImageGeneration + 支持的平台），
 	// 避免两个入口校验口径不一致留下防御纵深缺口。
 	if err := s.ensureGroupAllowsBatchImage(ctx, owner.GroupID); err != nil {
 		return nil, err
@@ -234,6 +239,14 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	provider, account, err := s.selectProviderAndAccount(ctx, owner, normalized.Provider, normalized.Model)
 	if err != nil {
 		return nil, err
+	}
+	// Validate again after selection so inferred providers cannot bypass their contract.
+	if provider.Name() == BatchImageProviderOpenAI {
+		if _, _, err := resolveOpenAIBatchImageSpec(normalized.ImageSize, normalized.AspectRatio, normalized.ResponseMimeType); err != nil {
+			return nil, ErrBatchImageInvalidItems
+		}
+	} else if !strings.EqualFold(normalized.ImageSize, defaultBatchImageImageSize) {
+		return nil, ErrBatchImageInvalidItems
 	}
 	pricingSnapshot, err := s.resolvePricingSnapshot(ctx, owner, normalized, provider.Name(), account)
 	if err != nil {
@@ -645,6 +658,7 @@ func (s *BatchImagePublicService) ListModels(ctx context.Context, owner BatchIma
 
 	modelsByProvider := make(map[string]map[string]struct{})
 	groupHasConfiguredImagePrice := false
+	var openAIImageSizes []string
 	if owner.GroupID != nil && *owner.GroupID > 0 && s.GroupRepo != nil {
 		group, err := s.GroupRepo.GetByIDLite(ctx, *owner.GroupID)
 		if err != nil || group == nil {
@@ -652,6 +666,13 @@ func (s *BatchImagePublicService) ListModels(ctx context.Context, owner BatchIma
 		}
 		if price := group.GetImagePrice(s.defaultImageSize()); price != nil && *price >= 0 {
 			groupHasConfiguredImagePrice = true
+		}
+		if group.Platform == PlatformOpenAI && group.AllowImageGeneration && group.AllowBatchImageGeneration {
+			for _, tier := range []string{ImageBillingSize1K, ImageBillingSize2K, ImageBillingSize4K} {
+				if price := group.GetImagePrice(tier); price != nil && *price >= 0 {
+					openAIImageSizes = append(openAIImageSizes, tier)
+				}
+			}
 		}
 	}
 	for _, providerName := range batchImageProviderSelectionOrder("") {
@@ -669,17 +690,17 @@ func (s *BatchImagePublicService) ListModels(ctx context.Context, owner BatchIma
 				continue
 			}
 			for _, model := range batchImageModelsFromAccountMapping(&account) {
-				if providerName == BatchImageProviderOpenAI && !isGPTImage2BatchModel(account.GetMappedModel(model)) {
+				if providerName == BatchImageProviderOpenAI && (!isGPTImage2BatchModel(model) || !isGPTImage2BatchModel(account.GetMappedModel(model))) {
 					continue
 				}
 				// OpenAI image catalog entries may be priced per output token. A batch
 				// response has no token count, so it is unsafe to infer a per-image
 				// price from that catalog. OpenAI batch therefore requires an explicit
 				// group image price, which is the deployment contract for gpt-image-2.
-				if providerName == BatchImageProviderOpenAI && !groupHasConfiguredImagePrice {
+				if providerName == BatchImageProviderOpenAI && len(openAIImageSizes) == 0 {
 					continue
 				}
-				if !groupHasConfiguredImagePrice {
+				if providerName != BatchImageProviderOpenAI && !groupHasConfiguredImagePrice {
 					if _, err := s.Pricing.BatchImageUnitPrice(ctx, &BatchImageJob{Provider: providerName, Model: model}); err != nil {
 						continue
 					}
@@ -703,17 +724,26 @@ func (s *BatchImagePublicService) ListModels(ctx context.Context, owner BatchIma
 		}
 		sort.Strings(models)
 		for _, model := range models {
-			out = append(out, BatchImagePublicModel{
+			entry := BatchImagePublicModel{
 				ID:       model,
 				Object:   "image.batch.model",
 				Provider: providerName,
-			})
+			}
+			if providerName == BatchImageProviderOpenAI {
+				entry.SupportedImageSizes = append([]string(nil), openAIImageSizes...)
+				entry.SupportedMimeTypes = []string{"image/png", "image/jpeg", "image/webp"}
+				entry.SupportsCustomDimensions = true
+			}
+			out = append(out, entry)
 		}
 	}
 	return &BatchImagePublicModelsResponse{Object: "list", Data: out}, nil
 }
 
 func (s *BatchImagePublicService) ListItems(ctx context.Context, owner BatchImageOwner, batchID string, query BatchImageItemsQuery) (*BatchImagePublicItemsResponse, error) {
+	if query.RetryInput {
+		return s.retryInput(ctx, owner, batchID)
+	}
 	filter := BatchImageItemFilter{Limit: query.Limit, Offset: parseBatchImageCursor(query.Cursor)}
 	switch strings.TrimSpace(query.Status) {
 	case "", "all":
@@ -742,6 +772,67 @@ func (s *BatchImagePublicService) ListItems(ctx context.Context, owner BatchImag
 		Data:    data,
 		HasMore: len(data) == filter.Limit,
 	}, nil
+}
+
+// retryInput returns only failed inputs from an owned task, never provider paths.
+// Providers without a lossless local input reader must fail closed.
+func (s *BatchImagePublicService) retryInput(ctx context.Context, owner BatchImageOwner, batchID string) (*BatchImagePublicItemsResponse, error) {
+	unavailable := infraerrors.New(409, "BATCH_IMAGE_RETRY_INPUT_UNAVAILABLE", "Original input cannot be restored. Re-upload the original reference images and prompts before submitting a new task; text-only retry is blocked.")
+	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	if err != nil {
+		return nil, err
+	}
+	if job.UserDeletedAt != nil || job.InputDeletedAt != nil || !IsTerminalBatchImageJobStatus(job.Status) {
+		return nil, unavailable
+	}
+	terminalAt := job.UpdatedAt
+	if job.SettledAt != nil {
+		terminalAt = *job.SettledAt
+	}
+	if job.FinishedAt != nil {
+		terminalAt = *job.FinishedAt
+	}
+	retention := (&BatchImageCleanupService{Config: s.Config}).inputRetentionAfterTerminal()
+	if !terminalAt.Add(retention).After(time.Now()) {
+		return nil, unavailable
+	}
+	provider, ok := s.ProviderRegistry.Get(job.Provider)
+	if !ok {
+		return nil, unavailable
+	}
+	local, ok := provider.(*OpenAIBatchImageProvider)
+	if !ok {
+		return nil, unavailable
+	}
+	// Do not follow arbitrary DB refs, including another task's file in the same directory.
+	if strings.ContainsAny(job.BatchID, "/\\") || batchImageProviderInputRef(job) != job.BatchID+".input.json" {
+		return nil, unavailable
+	}
+	input, err := local.readInput(job.BatchID + ".input.json")
+	if err != nil || input.BatchID != job.BatchID || input.Model != job.Model {
+		return nil, unavailable
+	}
+	failed, err := s.Repo.ListBatchImageItemsForOwner(ctx, owner.UserID, owner.APIKeyID, batchID, BatchImageItemFilter{Status: BatchImageItemStatusFailed, Limit: 500})
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]BatchImageInputItem, len(input.Items))
+	for _, item := range input.Items {
+		byID[item.CustomID] = item
+	}
+	req := &BatchImageSubmitRequest{Model: input.Model, Provider: job.Provider, ImageSize: input.ImageSize, AspectRatio: input.AspectRatio, ResponseMimeType: input.ResponseMimeType, Items: make([]BatchImageSubmitItem, 0, len(failed))}
+	for _, item := range failed {
+		original, found := byID[item.CustomID]
+		if !found {
+			return nil, unavailable
+		}
+		next := BatchImageSubmitItem{CustomID: original.CustomID, Prompt: original.Prompt}
+		for _, ref := range original.ReferenceImages {
+			next.ReferenceImages = append(next.ReferenceImages, BatchImageReferenceInput(ref))
+		}
+		req.Items = append(req.Items, next)
+	}
+	return &BatchImagePublicItemsResponse{Object: "list", Data: []BatchImagePublicItem{}, RetryRequest: req}, nil
 }
 
 func (s *BatchImagePublicService) Cancel(ctx context.Context, owner BatchImageOwner, batchID string) (*BatchImagePublicBatch, error) {
@@ -842,10 +933,12 @@ func (s *BatchImagePublicService) validateSubmitRequest(req BatchImageSubmitRequ
 	if req.ImageSize == "" {
 		req.ImageSize = s.defaultImageSize()
 	}
-	if !strings.EqualFold(req.ImageSize, defaultBatchImageImageSize) {
+	if req.Provider != "" && req.Provider != BatchImageProviderOpenAI && !strings.EqualFold(req.ImageSize, defaultBatchImageImageSize) {
 		return req, ErrBatchImageInvalidItems
 	}
-	req.ImageSize = defaultBatchImageImageSize
+	if strings.EqualFold(req.ImageSize, defaultBatchImageImageSize) {
+		req.ImageSize = defaultBatchImageImageSize
+	}
 	req.Metadata = sanitizeBatchImageMetadata(req.Metadata)
 
 	seen := make(map[string]struct{}, len(req.Items))
@@ -901,8 +994,13 @@ func (s *BatchImagePublicService) validateSubmitRequest(req BatchImageSubmitRequ
 			expandedItems = append(expandedItems, expanded)
 		}
 	}
-	if req.Provider == BatchImageProviderOpenAI && !isGPTImage2BatchModel(req.Model) {
-		return req, ErrBatchImageInvalidModel
+	if req.Provider == BatchImageProviderOpenAI {
+		if !isGPTImage2BatchModel(req.Model) {
+			return req, ErrBatchImageInvalidModel
+		}
+		if _, _, err := resolveOpenAIBatchImageSpec(req.ImageSize, req.AspectRatio, req.ResponseMimeType); err != nil {
+			return req, ErrBatchImageInvalidItems
+		}
 	}
 	req.Items = expandedItems
 	return req, nil
@@ -1001,7 +1099,7 @@ func (s *BatchImagePublicService) selectProviderAndAccount(ctx context.Context, 
 			if !account.IsSchedulable() || !account.IsModelSupported(model) {
 				continue
 			}
-			if providerName == BatchImageProviderOpenAI && !isGPTImage2BatchModel(account.GetMappedModel(model)) {
+			if providerName == BatchImageProviderOpenAI && (!isGPTImage2BatchModel(model) || !isGPTImage2BatchModel(account.GetMappedModel(model))) {
 				continue
 			}
 			if provider.SupportsAccount(&account) {
@@ -1056,6 +1154,18 @@ func (s *BatchImagePublicService) ensureGroupAllowsBatchImage(ctx context.Contex
 }
 
 func (s *BatchImagePublicService) resolvePricingSnapshot(ctx context.Context, owner BatchImageOwner, req BatchImageSubmitRequest, provider string, account *Account) (*BatchImagePricingSnapshot, error) {
+	billingSize := req.ImageSize
+	if provider == BatchImageProviderOpenAI {
+		dimensions, _, err := resolveOpenAIBatchImageSpec(req.ImageSize, req.AspectRatio, req.ResponseMimeType)
+		if err != nil {
+			return nil, ErrBatchImageInvalidItems
+		}
+		var ok bool
+		billingSize, ok = ClassifyImageBillingTier(dimensions)
+		if !ok {
+			return nil, ErrBatchImageInvalidItems
+		}
+	}
 	unit := -1.0
 	groupMultiplier := 1.0
 	discountMultiplier := defaultBatchImageDiscountMultiplier
@@ -1068,7 +1178,7 @@ func (s *BatchImagePublicService) resolvePricingSnapshot(ctx context.Context, ow
 		if err != nil || group == nil {
 			return nil, ErrBatchImageSettlementPricingMissing
 		}
-		if !group.AllowBatchImageGeneration {
+		if !group.AllowBatchImageGeneration || (provider == BatchImageProviderOpenAI && (!group.AllowImageGeneration || group.Platform != PlatformOpenAI)) {
 			return nil, ErrBatchImageGroupDisabled
 		}
 		groupDefaultMultiplier := group.RateMultiplier
@@ -1099,7 +1209,7 @@ func (s *BatchImagePublicService) resolvePricingSnapshot(ctx context.Context, ow
 		if group.BatchImageHoldMultiplier >= 0 {
 			holdMultiplier = group.BatchImageHoldMultiplier
 		}
-		if configuredUnit := group.GetImagePrice(req.ImageSize); configuredUnit != nil && *configuredUnit >= 0 {
+		if configuredUnit := group.GetImagePrice(billingSize); configuredUnit != nil && *configuredUnit >= 0 {
 			unit = *configuredUnit
 		}
 	}
@@ -1353,6 +1463,11 @@ func batchImageModelsFromAccountMapping(account *Account) []string {
 	}
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
+		// API-key accounts without a mapping allow all models. Advertise the
+		// one supported OpenAI batch model rather than hiding a usable account.
+		if account.Platform == PlatformOpenAI {
+			return []string{"gpt-image-2"}
+		}
 		return nil
 	}
 	models := make(map[string]struct{})

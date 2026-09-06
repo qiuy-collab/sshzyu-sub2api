@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,80 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBatchImagePublicService_RetryInput(t *testing.T) {
+	for _, scenario := range []string{"edits", "generations", "wrong user", "wrong key", "expired", "cleaned", "deleted", "missing", "cross task ref", "cross task payload", "unsupported", "missing item", "running"} {
+		t.Run(scenario, func(t *testing.T) {
+			svc, repo, _, _, _ := newTestBatchImagePublicService(true)
+			provider := NewOpenAIBatchImageProvider(OpenAIBatchImageProviderOptions{DataDir: t.TempDir()})
+			svc.ProviderRegistry = NewBatchImageProviderRegistry(provider)
+			owner := testBatchImageOwner()
+			now := time.Now()
+			job := &BatchImageJob{BatchID: "imgbatch_retry", UserID: owner.UserID, APIKeyID: &owner.APIKeyID, Provider: BatchImageProviderOpenAI, Model: "gpt-image-2", Status: BatchImageJobStatusFailed, UpdatedAt: now}
+			input := BatchImageInput{BatchID: job.BatchID, Model: job.Model, ImageSize: "4K", AspectRatio: "16:9", ResponseMimeType: "image/webp", Items: []BatchImageInputItem{{CustomID: "failed", Prompt: "full original prompt", ReferenceImages: []BatchImageReference{{MimeType: "image/png", Data: []byte("original image")}}}, {CustomID: "success", Prompt: "do not repeat"}}}
+			if scenario == "generations" {
+				input.Items[0].ReferenceImages = nil
+			}
+			if scenario == "cross task payload" {
+				input.BatchID = "imgbatch_other"
+			}
+			ref, err := provider.writeInput(input)
+			require.NoError(t, err)
+			job.ProviderInputRef = &ref
+			repo.jobs[job.BatchID] = job
+			repo.items[job.BatchID] = []CreateBatchImageItemParams{{CustomID: "failed", Status: BatchImageItemStatusFailed}, {CustomID: "success", Status: BatchImageItemStatusSuccess}}
+			switch scenario {
+			case "wrong user":
+				owner.UserID++
+			case "wrong key":
+				owner.APIKeyID++ // replace pointer below to retain original ownership
+				originalKey := owner.APIKeyID - 1
+				job.APIKeyID = &originalKey
+			case "expired":
+				job.UpdatedAt = now.Add(-25 * time.Hour)
+			case "cleaned":
+				job.InputDeletedAt = &now
+			case "deleted":
+				job.UserDeletedAt = &now
+			case "missing":
+				require.NoError(t, os.Remove(provider.pathFor(ref)))
+			case "cross task ref":
+				job.ProviderInputRef = batchImageStringPtr("imgbatch_other.input.json")
+			case "cross task payload":
+				payload, marshalErr := json.Marshal(openAIBatchStoredInput{Input: input})
+				require.NoError(t, marshalErr)
+				require.NoError(t, provider.writePrivateFile(job.BatchID+".input.json", payload))
+				job.ProviderInputRef = batchImageStringPtr(job.BatchID + ".input.json")
+			case "unsupported":
+				job.Provider = BatchImageProviderGeminiAPI
+			case "missing item":
+				repo.items[job.BatchID][0].CustomID = "absent"
+			case "running":
+				job.Status = BatchImageJobStatusRunning
+			}
+			got, err := svc.ListItems(context.Background(), owner, job.BatchID, BatchImageItemsQuery{RetryInput: true})
+			if scenario != "edits" && scenario != "generations" {
+				require.Error(t, err)
+				require.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, got.RetryRequest.Items, 1)
+			require.Equal(t, input.Items[0].Prompt, got.RetryRequest.Items[0].Prompt)
+			require.Equal(t, "4K", got.RetryRequest.ImageSize)
+			require.Equal(t, "16:9", got.RetryRequest.AspectRatio)
+			require.Equal(t, "image/webp", got.RetryRequest.ResponseMimeType)
+			if scenario == "edits" {
+				require.Equal(t, []byte("original image"), got.RetryRequest.Items[0].ReferenceImages[0].Data)
+			} else {
+				require.Empty(t, got.RetryRequest.Items[0].ReferenceImages)
+			}
+			ordinary, err := svc.ListItems(context.Background(), owner, job.BatchID, BatchImageItemsQuery{})
+			require.NoError(t, err)
+			require.Nil(t, ordinary.RetryRequest)
+		})
+	}
+}
 
 func TestBatchImagePublicService_Submit(t *testing.T) {
 	ctx := context.Background()
@@ -522,6 +598,43 @@ func TestBatchImagePublicService_List(t *testing.T) {
 func TestBatchImagePublicService_ListModels(t *testing.T) {
 	ctx := context.Background()
 
+	t.Run("OpenAI lists only submittable models with explicit group pricing", func(t *testing.T) {
+		svc, _, _, _, _ := newTestBatchImagePublicService(true)
+		groupID := int64(7)
+		price := 0.05
+		group := &Group{ID: groupID, Platform: PlatformOpenAI, AllowImageGeneration: true, AllowBatchImageGeneration: true, ImagePrice1K: &price}
+		svc.GroupRepo = &publicBatchImageGroupRepo{groups: map[int64]*Group{groupID: group}}
+		svc.ProviderRegistry = NewBatchImageProviderRegistry(NewOpenAIBatchImageProvider(openAIBatchTestOptions(t.TempDir())))
+		account := testBatchImageAccount(303, AccountTypeAPIKey)
+		account.Platform = PlatformOpenAI
+		svc.AccountRepo.(*publicBatchImageAccountRepo).accounts = []Account{account}
+		owner := BatchImageOwner{UserID: 11, APIKeyID: 22, GroupID: &groupID}
+		got, err := svc.ListModels(ctx, owner)
+		require.NoError(t, err)
+		require.Equal(t, []BatchImagePublicModel{{ID: "gpt-image-2", Object: "image.batch.model", Provider: BatchImageProviderOpenAI, SupportedImageSizes: []string{"1K"}, SupportedMimeTypes: []string{"image/png", "image/jpeg", "image/webp"}, SupportsCustomDimensions: true}}, got.Data)
+		account.Credentials["model_mapping"] = map[string]any{"alias": "gpt-image-2", "gpt-image-2": "gpt-image-2", "gpt-image-3": "gpt-image-3"}
+		got, err = svc.ListModels(ctx, owner)
+		require.NoError(t, err)
+		require.Len(t, got.Data, 1)
+		require.Equal(t, "gpt-image-2", got.Data[0].ID)
+		group.ImagePrice1K = nil
+		got, err = svc.ListModels(ctx, owner)
+		require.NoError(t, err)
+		require.Empty(t, got.Data)
+		group.ImagePrice2K, group.ImagePrice4K = &price, &price
+		got, err = svc.ListModels(ctx, owner)
+		require.NoError(t, err)
+		require.Len(t, got.Data, 1)
+		require.Equal(t, []string{"2K", "4K"}, got.Data[0].SupportedImageSizes)
+		group.AllowImageGeneration = false
+		got, err = svc.ListModels(ctx, owner)
+		require.NoError(t, err)
+		require.Empty(t, got.Data)
+		group.AllowBatchImageGeneration = false
+		_, err = svc.ListModels(ctx, owner)
+		require.ErrorIs(t, err, ErrBatchImageGroupDisabled)
+	})
+
 	t.Run("requires explicit account model mapping", func(t *testing.T) {
 		svc, _, _, _, _ := newTestBatchImagePublicService(true)
 
@@ -830,6 +943,106 @@ func validBatchImageSubmitRequest() BatchImageSubmitRequest {
 			{CustomID: "cover_002", Prompt: "clean"},
 		},
 	}
+}
+
+func TestBatchImagePublicService_OpenAIOutputOptions(t *testing.T) {
+	svc, _, _, _, _ := newTestBatchImagePublicService(true)
+	for _, options := range []struct {
+		mime, aspect string
+		valid        bool
+	}{
+		{"image/png", "1:1", true}, {"image/png", "", true},
+		{"image/jpeg", "1:1", true}, {"image/png", "3:2", true},
+		{"image/webp", "1:1", true}, {"image/gif", "1:1", false},
+		{"image/png", "4:1", false},
+	} {
+		req := validBatchImageSubmitRequest()
+		req.Provider, req.Model = BatchImageProviderOpenAI, "gpt-image-2"
+		req.ResponseMimeType, req.AspectRatio = options.mime, options.aspect
+		_, err := svc.validateSubmitRequest(req)
+		if options.valid {
+			require.NoError(t, err)
+		} else {
+			require.ErrorIs(t, err, ErrBatchImageInvalidItems)
+		}
+	}
+}
+
+func TestBatchImagePublicService_OpenAISpecTierPricing(t *testing.T) {
+	for _, tc := range []struct {
+		name, size, aspect string
+		allTiers, disabled bool
+		wantErr            error
+		wantPrice          float64
+	}{
+		{name: "1K policy", size: "1K", aspect: "1:1", wantPrice: .05},
+		{name: "explicit 1K", size: "1024x1024", wantPrice: .05},
+		{name: "2K cannot use 1K price", size: "2K", aspect: "1:1", wantErr: ErrBatchImageSettlementPricingMissing},
+		{name: "explicit 2K cannot use 1K price", size: "1536x1024", wantErr: ErrBatchImageSettlementPricingMissing},
+		{name: "4K cannot use 1K price", size: "3840x2160", wantErr: ErrBatchImageSettlementPricingMissing},
+		{name: "124K 1K policy", size: "1K", aspect: "1:1", allTiers: true, wantPrice: .12},
+		{name: "124K 2K policy", size: "2048x2048", allTiers: true, wantPrice: .12},
+		{name: "124K 4K policy", size: "3840x2160", allTiers: true, wantPrice: .12},
+		{name: "image permission denied", size: "1K", aspect: "1:1", disabled: true, wantErr: ErrBatchImageGroupDisabled},
+		{name: "invalid dimensions", size: "1025x1024", wantErr: ErrBatchImageInvalidItems},
+	} {
+		for _, explicit := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/explicit=%v", tc.name, explicit), func(t *testing.T) {
+				svc, repo, _, _, _ := newTestBatchImagePublicService(true)
+				groupID := int64(16)
+				price := .05
+				group := &Group{ID: groupID, Platform: PlatformOpenAI, AllowImageGeneration: !tc.disabled, AllowBatchImageGeneration: true, RateMultiplier: 1, ImagePrice1K: &price, BatchImageDiscountMultiplier: .5, BatchImageHoldMultiplier: .6}
+				if tc.allTiers {
+					price = .12
+					group.ImagePrice2K, group.ImagePrice4K = &price, &price
+				}
+				svc.GroupRepo = &publicBatchImageGroupRepo{groups: map[int64]*Group{groupID: group}}
+				provider := &publicBatchImageProvider{name: BatchImageProviderOpenAI}
+				svc.ProviderRegistry = NewBatchImageProviderRegistry(provider)
+				account := testBatchImageAccount(404, AccountTypeAPIKey)
+				account.Platform = PlatformOpenAI
+				svc.AccountRepo = &publicBatchImageAccountRepo{accounts: []Account{account}}
+				req := validBatchImageSubmitRequest()
+				req.Provider, req.Model = "", "gpt-image-2"
+				if explicit {
+					req.Provider = BatchImageProviderOpenAI
+				}
+				req.ImageSize, req.AspectRatio, req.ResponseMimeType = tc.size, tc.aspect, "image/webp"
+				got, err := svc.Submit(context.Background(), BatchImageOwner{UserID: 11, APIKeyID: 22, GroupID: &groupID}, req, "")
+				if tc.wantErr != nil {
+					require.ErrorIs(t, err, tc.wantErr)
+					require.Empty(t, repo.jobs)
+					require.Empty(t, provider.submits)
+					return
+				}
+				require.NoError(t, err)
+				require.InDelta(t, tc.wantPrice*2, got.EstimatedCost, 1e-12)
+				require.InDelta(t, tc.wantPrice*2, got.HoldAmount, 1e-12)
+				require.Equal(t, tc.size, provider.submits[0].ImageSize)
+				require.Equal(t, "image/webp", provider.submits[0].ResponseMimeType)
+			})
+		}
+	}
+}
+
+func TestBatchImagePublicService_OpenAISelectionRejectsHiddenAlias(t *testing.T) {
+	svc, _, _, _, _ := newTestBatchImagePublicService(true)
+	svc.ProviderRegistry = NewBatchImageProviderRegistry(&publicBatchImageProvider{name: BatchImageProviderOpenAI})
+	account := testBatchImageMappedAccount(404, AccountTypeAPIKey, map[string]any{"alias": "gpt-image-2", "gpt-image-2": "gpt-image-2"})
+	account.Platform = PlatformOpenAI
+	svc.AccountRepo = &publicBatchImageAccountRepo{accounts: []Account{account}}
+	for _, provider := range []string{"", BatchImageProviderOpenAI} {
+		_, _, err := svc.selectProviderAndAccount(context.Background(), testBatchImageOwner(), provider, "alias")
+		require.ErrorIs(t, err, ErrBatchImageNoAccountAvailable)
+		_, selected, err := svc.selectProviderAndAccount(context.Background(), testBatchImageOwner(), provider, "gpt-image-2")
+		require.NoError(t, err)
+		require.Equal(t, account.ID, selected.ID)
+	}
+}
+
+func TestBatchImageModelsFromAccountMapping_OpenAIWithoutMapping(t *testing.T) {
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	require.Equal(t, []string{"gpt-image-2"}, batchImageModelsFromAccountMapping(account))
 }
 
 func testBatchImageAccount(id int64, accountType string) Account {
