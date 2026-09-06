@@ -684,14 +684,31 @@ func (s *BatchImagePublicService) ListModels(ctx context.Context, owner BatchIma
 		if err != nil {
 			return nil, err
 		}
+		// 分组内实际存在的模型全集：生图分组的账号设置里只配置生图模型，因此
+		// 各账号 model_mapping 的两端（含无映射账号的兜底模型）就是分组的模型
+		// 来源。映射目标是否合法以该集合为准，不再要求特定字面量。
+		groupModels := batchImageGroupModelSet(accounts)
 		for i := range accounts {
 			account := accounts[i]
 			if !account.IsSchedulable() || !provider.SupportsAccount(&account) {
 				continue
 			}
 			for _, model := range batchImageModelsFromAccountMapping(&account) {
-				if providerName == BatchImageProviderOpenAI && (!isGPTImage2BatchModel(model) || !isGPTImage2BatchModel(account.GetMappedModel(model))) {
-					continue
+				if providerName == BatchImageProviderOpenAI {
+					if !isGPTImage2BatchModel(model) {
+						continue
+					}
+					// gpt-image-2 batch jobs must never be routed to a Gemini-family
+					// image upstream (e.g. nano-banana), even if such a mapping is
+					// configured inside this group.
+					if isGeminiImageUpstreamModel(account.GetMappedModel(model)) {
+						continue
+					}
+					// 映射目标必须是分组内实际存在的上游模型（例如 image-2-web 这类
+					// 上游别名），不再要求目标等于 gpt-image-2 字面量。
+					if !batchImageGroupHasModel(groupModels, account.GetMappedModel(model)) {
+						continue
+					}
 				}
 				// OpenAI image catalog entries may be priced per output token. A batch
 				// response has no token count, so it is unsafe to infer a per-image
@@ -1094,13 +1111,25 @@ func (s *BatchImagePublicService) selectProviderAndAccount(ctx context.Context, 
 			}
 			return accounts[i].ID < accounts[j].ID
 		})
+		// 与列表口径一致：选号时同样要求映射目标落在分组模型全集内。
+		groupModels := batchImageGroupModelSet(accounts)
 		for i := range accounts {
 			account := accounts[i]
 			if !account.IsSchedulable() || !account.IsModelSupported(model) {
 				continue
 			}
-			if providerName == BatchImageProviderOpenAI && (!isGPTImage2BatchModel(model) || !isGPTImage2BatchModel(account.GetMappedModel(model))) {
-				continue
+			if providerName == BatchImageProviderOpenAI {
+				if !isGPTImage2BatchModel(model) {
+					continue
+				}
+				// gpt-image-2 不得路由到 Gemini 系生图上游，目标必须是分组内
+				// 实际存在的模型（如 image-2-web 别名）。
+				if isGeminiImageUpstreamModel(account.GetMappedModel(model)) {
+					continue
+				}
+				if !batchImageGroupHasModel(groupModels, account.GetMappedModel(model)) {
+					continue
+				}
 			}
 			if provider.SupportsAccount(&account) {
 				return provider, &account, nil
@@ -1131,6 +1160,62 @@ func isBatchImageGroupPlatform(platform string) bool {
 // to the one model whose pricing and upstream behaviour it is configured for.
 func isGPTImage2BatchModel(model string) bool {
 	return strings.EqualFold(strings.TrimSpace(model), "gpt-image-2")
+}
+
+// isGeminiImageUpstreamModel reports whether the given upstream model name is a
+// Gemini-family image model. OpenAI batch jobs advertised as gpt-image-2 must
+// not be routed to such an upstream, while unrelated upstream aliases (e.g.
+// image-2-web) are legitimate deployments and must stay listable.
+func isGeminiImageUpstreamModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return false
+	}
+	if strings.Contains(m, "nano-banana") {
+		return true
+	}
+	return strings.HasPrefix(m, "gemini") && strings.Contains(m, "image")
+}
+
+// batchImageGroupModelSet collects every model name that exists inside a set of
+// candidate accounts: both sides of each account model mapping, plus the
+// fallback model advertised by mapping-less accounts. Image-group accounts only
+// ever carry image models in their settings, so this set is the group's model
+// universe as configured by the administrator.
+func batchImageGroupModelSet(accounts []Account) map[string]struct{} {
+	set := make(map[string]struct{})
+	add := func(model string) {
+		model = strings.ToLower(strings.TrimSpace(model))
+		if model != "" {
+			set[model] = struct{}{}
+		}
+	}
+	for i := range accounts {
+		account := &accounts[i]
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			for _, model := range batchImageModelsFromAccountMapping(account) {
+				add(model)
+			}
+			continue
+		}
+		for key, value := range mapping {
+			add(key)
+			add(value)
+		}
+	}
+	return set
+}
+
+// batchImageGroupHasModel reports whether model exists in the group model set
+// (case-insensitive, whitespace-trimmed).
+func batchImageGroupHasModel(set map[string]struct{}, model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" {
+		return false
+	}
+	_, ok := set[model]
+	return ok
 }
 
 func (s *BatchImagePublicService) ensureGroupAllowsBatchImage(ctx context.Context, groupID *int64) error {

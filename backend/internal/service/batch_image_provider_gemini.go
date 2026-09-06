@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
@@ -29,6 +30,45 @@ type GeminiBatchClient interface {
 	CancelBatch(ctx context.Context, apiKey string, batchName string) error
 	DownloadFile(ctx context.Context, apiKey string, fileName string) (io.ReadCloser, string, error)
 	DeleteFile(ctx context.Context, apiKey string, fileName string) error
+	// GenerateContent submits one inline image request. It backs the degraded
+	// local executor for relays that lack the Files API and true batch support.
+	GenerateContent(ctx context.Context, apiKey string, model string, request *geminiGenerateRequest) (*GeminiGenerateContentResponse, error)
+}
+
+// GeminiGenerateContentResponse is the subset of :generateContent output the
+// batch provider needs to extract inline image data.
+type GeminiGenerateContentResponse struct {
+	Candidates     []GeminiGenerateCandidate `json:"candidates"`
+	PromptFeedback *GeminiPromptFeedback     `json:"promptFeedback"`
+}
+
+type GeminiGenerateCandidate struct {
+	Content      *GeminiGenerateContent `json:"content"`
+	FinishReason string                 `json:"finishReason"`
+}
+
+type GeminiGenerateContent struct {
+	Parts []geminiPart `json:"parts"`
+}
+
+type GeminiPromptFeedback struct {
+	BlockReason string `json:"blockReason"`
+}
+
+// GeminiUnsupportedEndpointError reports a 2xx response whose body is an HTML
+// document instead of JSON. Gemini-compatible relays serve their web UI as a
+// catch-all fallback for unimplemented endpoints (e.g. /upload/v1beta/files),
+// which must not be mistaken for a valid API response.
+type GeminiUnsupportedEndpointError struct {
+	StatusCode int
+	Endpoint   string
+}
+
+func (e *GeminiUnsupportedEndpointError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("gemini endpoint is not supported by the upstream: status=%d endpoint=%s", e.StatusCode, e.Endpoint)
 }
 
 type GeminiUploadedFile struct {
@@ -67,13 +107,73 @@ type GeminiBatchError struct {
 
 type GeminiAPIBatchImageProvider struct {
 	client GeminiBatchClient
+	// clientInjected marks test-provided clients: per-account base_url overrides
+	// must not redirect a mock to an unexpected transport.
+	clientInjected bool
+	local          *geminiLocalBatchExecutor
 }
 
 func NewGeminiAPIBatchImageProvider(client GeminiBatchClient) *GeminiAPIBatchImageProvider {
+	return NewGeminiAPIBatchImageProviderWithOptions(client, "", 0)
+}
+
+// NewGeminiAPIBatchImageProviderWithOptions builds the provider. dataDir and
+// requestTimeout drive the degraded local executor. With a nil client the
+// provider selects each account's own base_url at request time so relay-backed
+// accounts stop hitting AI Studio.
+func NewGeminiAPIBatchImageProviderWithOptions(client GeminiBatchClient, dataDir string, requestTimeout time.Duration) *GeminiAPIBatchImageProvider {
+	injected := client != nil
 	if client == nil {
 		client = NewGeminiBatchHTTPClient("", nil)
 	}
-	return &GeminiAPIBatchImageProvider{client: client}
+	return &GeminiAPIBatchImageProvider{
+		client:         client,
+		clientInjected: injected,
+		local:          newGeminiLocalBatchExecutor(dataDir, requestTimeout),
+	}
+}
+
+func NewGeminiAPIBatchImageProviderFromConfig(cfg *config.Config) *GeminiAPIBatchImageProvider {
+	var dataDir string
+	if cfg != nil {
+		dataDir = cfg.Pricing.DataDir
+	}
+	return NewGeminiAPIBatchImageProviderWithOptions(nil, dataDir, defaultGeminiLocalBatchRequestTimeout)
+}
+
+// clientFor returns the Gemini batch client for the account. Test-injected
+// clients are returned as-is; otherwise the account's own base_url (configured
+// for relay endpoints) selects the upstream, falling back to AI Studio.
+func (p *GeminiAPIBatchImageProvider) clientFor(account *Account) (GeminiBatchClient, func()) {
+	if p.clientInjected || account == nil {
+		return p.client, func() {}
+	}
+	baseURL := strings.TrimSpace(account.GetGeminiBaseURL(geminicli.AIStudioBaseURL))
+	if baseURL == "" || baseURL == geminicli.AIStudioBaseURL {
+		return p.client, func() {}
+	}
+	proxyClient, err := openAIBatchHTTPClient(resolveAccountProxyURL(account))
+	if err != nil || proxyClient == nil {
+		return NewGeminiBatchHTTPClient(baseURL, nil), func() {}
+	}
+	proxyClient.Timeout = defaultGeminiLocalBatchRequestTimeout
+	return NewGeminiBatchHTTPClient(baseURL, proxyClient), func() { proxyClient.CloseIdleConnections() }
+}
+
+// geminiBatchUploadFallbackToLocal reports whether a failed Files upload means
+// the upstream has no Files API at all (HTML fallback page or a 404 route), in
+// which case the batch falls back to local execution via :generateContent.
+// Other failures (auth, rate limits, 5xx, network) are surfaced unchanged.
+func geminiBatchUploadFallbackToLocal(err error) bool {
+	var unsupported *GeminiUnsupportedEndpointError
+	if errors.As(err, &unsupported) {
+		return true
+	}
+	var apiErr *GeminiAPIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+		return true
+	}
+	return false
 }
 
 func (p *GeminiAPIBatchImageProvider) Name() string {
@@ -112,15 +212,24 @@ func (p *GeminiAPIBatchImageProvider) Submit(ctx context.Context, job *BatchImag
 		displayName = strings.TrimSpace(input.BatchID)
 	}
 
-	uploaded, err := p.client.UploadJSONL(ctx, apiKey, displayName, bytes.NewReader(jsonl))
+	gc, releaseClient := p.clientFor(account)
+	defer releaseClient()
+
+	uploaded, err := gc.UploadJSONL(ctx, apiKey, displayName, bytes.NewReader(jsonl))
 	if err != nil {
+		// Relays without a Files API (HTML fallback page / missing route) cannot
+		// run true Gemini batches; degrade to local execution instead of failing
+		// the whole submission. Nothing has been billed at this point.
+		if geminiBatchUploadFallbackToLocal(err) {
+			return p.local.Submit(ctx, input)
+		}
 		return nil, mapGeminiClientError(err)
 	}
 	if uploaded == nil || strings.TrimSpace(uploaded.Name) == "" {
 		return nil, geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini upload response is missing file name", nil)
 	}
 
-	batch, err := p.client.CreateBatch(ctx, apiKey, input.Model, uploaded.Name, displayName)
+	batch, err := gc.CreateBatch(ctx, apiKey, input.Model, uploaded.Name, displayName)
 	if err != nil {
 		return nil, mapGeminiClientError(err)
 	}
@@ -143,12 +252,19 @@ func (p *GeminiAPIBatchImageProvider) Get(ctx context.Context, job *BatchImageJo
 	if apiKey == "" {
 		return nil, ErrBatchImageProviderMissingAPIKey
 	}
+	if isGeminiLocalInputRef(batchImageProviderInputRef(job)) {
+		gc, releaseClient := p.clientFor(account)
+		defer releaseClient()
+		return p.local.Get(ctx, job, account, gc)
+	}
 	jobName := batchImageProviderJobName(job)
 	if jobName == "" {
 		return nil, ErrBatchImageProviderMissingJobName
 	}
 
-	batch, err := p.client.GetBatch(ctx, apiKey, jobName)
+	gc, releaseClient := p.clientFor(account)
+	defer releaseClient()
+	batch, err := gc.GetBatch(ctx, apiKey, jobName)
 	if err != nil {
 		return nil, mapGeminiClientError(err)
 	}
@@ -185,7 +301,12 @@ func (p *GeminiAPIBatchImageProvider) Cancel(ctx context.Context, job *BatchImag
 	if jobName == "" {
 		return ErrBatchImageProviderMissingJobName
 	}
-	return mapGeminiClientError(p.client.CancelBatch(ctx, apiKey, jobName))
+	if isGeminiLocalInputRef(batchImageProviderInputRef(job)) {
+		return p.local.Cancel(ctx, job)
+	}
+	gc, releaseClient := p.clientFor(account)
+	defer releaseClient()
+	return mapGeminiClientError(gc.CancelBatch(ctx, apiKey, jobName))
 }
 
 func (p *GeminiAPIBatchImageProvider) OpenResult(ctx context.Context, job *BatchImageJob, account *Account) (io.ReadCloser, string, error) {
@@ -196,11 +317,16 @@ func (p *GeminiAPIBatchImageProvider) OpenResult(ctx context.Context, job *Batch
 	if apiKey == "" {
 		return nil, "", ErrBatchImageProviderMissingAPIKey
 	}
+	if isGeminiLocalInputRef(batchImageProviderInputRef(job)) {
+		return p.local.OpenResult(ctx, job)
+	}
 	outputRef := batchImageProviderOutputRef(job)
 	if outputRef == "" {
 		return nil, "", ErrBatchImageProviderMissingResultRef
 	}
-	r, contentType, err := p.client.DownloadFile(ctx, apiKey, outputRef)
+	gc, releaseClient := p.clientFor(account)
+	defer releaseClient()
+	r, contentType, err := gc.DownloadFile(ctx, apiKey, outputRef)
 	return r, contentType, mapGeminiClientError(err)
 }
 
@@ -211,6 +337,9 @@ func (p *GeminiAPIBatchImageProvider) Cleanup(ctx context.Context, job *BatchIma
 	apiKey := batchImageProviderAPIKey(account)
 	if apiKey == "" {
 		return ErrBatchImageProviderMissingAPIKey
+	}
+	if isGeminiLocalInputRef(batchImageProviderInputRef(job)) {
+		return p.local.Cleanup(ctx, job, target)
 	}
 
 	switch target {
@@ -434,6 +563,10 @@ func mapGeminiClientError(err error) error {
 	if err == nil {
 		return nil
 	}
+	var unsupported *GeminiUnsupportedEndpointError
+	if errors.As(err, &unsupported) {
+		return geminiProviderError("GEMINI_ENDPOINT_UNSUPPORTED", "Gemini endpoint is not supported by the upstream", nil)
+	}
 	var apiErr *GeminiAPIError
 	if errors.As(err, &apiErr) {
 		switch apiErr.StatusCode {
@@ -545,6 +678,34 @@ func (c *GeminiBatchHTTPClient) CreateBatch(ctx context.Context, apiKey string, 
 	return c.doBatchJob(req)
 }
 
+// GenerateContent submits one inline image request to
+// /v1beta/models/{model}:generateContent. It backs the degraded local
+// executor for relays without Files API or true batch support.
+func (c *GeminiBatchHTTPClient) GenerateContent(ctx context.Context, apiKey string, model string, request *geminiGenerateRequest) (*GeminiGenerateContentResponse, error) {
+	if request == nil {
+		return nil, geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini generate request is empty", nil)
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return nil, geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini generate request is missing model", nil)
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	path := fmt.Sprintf("/v1beta/models/%s:generateContent", url.PathEscape(model))
+	req, err := c.newRequest(ctx, http.MethodPost, path, apiKey, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	var resp GeminiGenerateContentResponse
+	if err := c.doJSON(req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (c *GeminiBatchHTTPClient) GetBatch(ctx context.Context, apiKey string, batchName string) (*GeminiBatchJob, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/v1beta/"+strings.TrimLeft(batchName, "/"), apiKey, nil)
 	if err != nil {
@@ -646,6 +807,11 @@ func (c *GeminiBatchHTTPClient) doJSON(req *http.Request, out any) error {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return readGeminiAPIError(resp)
+	}
+	// Relay fallback pages answer unimplemented endpoints with 200 + HTML.
+	// Detect them before JSON decoding so callers can degrade cleanly.
+	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") {
+		return &GeminiUnsupportedEndpointError{StatusCode: resp.StatusCode, Endpoint: req.URL.Path}
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }

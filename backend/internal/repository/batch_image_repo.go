@@ -396,6 +396,24 @@ WHERE job_id = $1 AND status = 'pending'`, batchID); err != nil {
 			return err
 		}
 	}
+	if toStatus == service.BatchImageJobStatusFailed {
+		// Failed 同样必须终结 pending 子项，否则批次已终态而子项永远"排队中"。
+		// 子项继承批次的错误码/信息（如索引解析失败），让界面能看到失败原因。
+		if _, err := sqlq.ExecContext(ctx, `
+UPDATE batch_image_items
+SET status = 'failed',
+    error_code = COALESCE($2::varchar, error_code, 'PROVIDER_BATCH_FAILED'),
+    error_message = COALESCE($3::varchar, error_message)
+WHERE job_id = $1 AND status = 'pending'`, batchID, opts.ErrorCode, opts.ErrorMessage); err != nil {
+			return err
+		}
+		if _, err := sqlq.ExecContext(ctx, `
+UPDATE batch_image_jobs
+SET fail_count = (SELECT count(*) FROM batch_image_items WHERE job_id = $1 AND status = 'failed')
+WHERE batch_id = $1`, batchID); err != nil {
+			return err
+		}
+	}
 
 	if opts.EventType != "" {
 		return appendBatchImageEventWithSQL(ctx, sqlq, batchID, opts.EventType, opts.EventPayload)

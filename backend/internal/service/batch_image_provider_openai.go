@@ -111,8 +111,12 @@ func (p *OpenAIBatchImageProvider) Submit(_ context.Context, job *BatchImageJob,
 	if input.Model == "" && job != nil {
 		input.Model = job.Model
 	}
-	if !isGPTImage2BatchModel(account.GetMappedModel(input.Model)) {
-		return nil, batchImageProviderInputError("mapped model must be gpt-image-2 for OpenAI batch image generation")
+	// Provider 层只保留通用安全底线：映射目标非空且不是 Gemini 系生图模型。
+	// 「目标必须是分组内存在的模型」由 service 层（列表/选号）以分组模型全集
+	// 校验，此处没有分组上下文。
+	mappedModel := strings.TrimSpace(account.GetMappedModel(input.Model))
+	if mappedModel == "" || isGeminiImageUpstreamModel(mappedModel) {
+		return nil, batchImageProviderInputError("openai batch image requests must map onto a non-Gemini upstream model configured for this account")
 	}
 	if err := validateOpenAIBatchInput(input); err != nil {
 		return nil, err

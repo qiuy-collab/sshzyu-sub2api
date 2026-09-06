@@ -543,7 +543,11 @@ func batchImageInternalImages(obj map[string]any) ([]BatchImageInlineImage, bool
 	if format != batchImageInternalResultFormat {
 		return nil, true, fmt.Errorf("unsupported batch image result format")
 	}
-	if batchImageMapString(obj, "provider") != BatchImageProviderOpenAI {
+	switch batchImageMapString(obj, "provider") {
+	case BatchImageProviderOpenAI, BatchImageProviderGeminiAPI:
+		// 本地降级执行器（OpenAI 拉式执行与 Gemini 降级链路）写出的内部结果行，
+		// provider 分别为 openai / gemini_api，共用同一中立 images 结构。
+	default:
 		return nil, true, fmt.Errorf("unsupported internal batch image result provider")
 	}
 	if _, failed := obj["error"].(map[string]any); failed {

@@ -39,7 +39,7 @@ func NewBatchImageProviderRegistry(providers ...BatchImageProvider) *BatchImageP
 
 func NewDefaultBatchImageProviderRegistry() *BatchImageProviderRegistry {
 	return NewBatchImageProviderRegistry(
-		NewGeminiAPIBatchImageProvider(nil),
+		NewGeminiAPIBatchImageProviderFromConfig(nil),
 		NewVertexBatchImageProvider(VertexBatchImageProviderOptions{}, nil, nil, nil),
 		NewOpenAIBatchImageProvider(OpenAIBatchImageProviderOptions{}),
 	)
@@ -47,7 +47,7 @@ func NewDefaultBatchImageProviderRegistry() *BatchImageProviderRegistry {
 
 func NewBatchImageProviderRegistryFromConfig(cfg *config.Config) *BatchImageProviderRegistry {
 	return NewBatchImageProviderRegistry(
-		NewGeminiAPIBatchImageProvider(nil),
+		NewGeminiAPIBatchImageProviderFromConfig(cfg),
 		NewVertexBatchImageProviderFromConfig(cfg, nil, nil, nil),
 		NewOpenAIBatchImageProviderFromConfig(cfg),
 	)

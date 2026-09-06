@@ -44,3 +44,38 @@ func TestBatchImageRepository_CancelFinalizesPendingItemsAtomically(t *testing.T
 		})
 	}
 }
+
+func TestBatchImageRepository_FailedFinalizesPendingItemsAtomically(t *testing.T) {
+	for _, failItems := range []bool{false, true} {
+		name := "commit"
+		if failItems {
+			name = "rollback_on_item_failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer db.Close()
+			repo := NewBatchImageRepository(db)
+			now := time.Now()
+			mock.ExpectBegin()
+			mock.ExpectQuery("SELECT status FROM batch_image_jobs WHERE batch_id = " + `\$1` + " FOR UPDATE").WithArgs("fail-test").WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow(service.BatchImageJobStatusRunning))
+			mock.ExpectExec("UPDATE batch_image_jobs").WithArgs("fail-test", service.BatchImageJobStatusFailed, now, nil, nil).WillReturnResult(sqlmock.NewResult(0, 1))
+			update := mock.ExpectExec("UPDATE batch_image_items\\s+SET status = 'failed',").WithArgs("fail-test", nil, nil)
+			if failItems {
+				update.WillReturnError(errors.New("item update failed"))
+				mock.ExpectRollback()
+			} else {
+				update.WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectExec("UPDATE batch_image_jobs\\s+SET fail_count").WithArgs("fail-test").WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectCommit()
+			}
+			err = repo.TransitionBatchImageJobStatus(context.Background(), "fail-test", service.BatchImageJobStatusFailed, service.BatchImageTransitionOptions{Now: &now})
+			if failItems {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
