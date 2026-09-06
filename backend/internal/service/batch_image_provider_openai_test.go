@@ -270,15 +270,26 @@ func TestOpenAIBatchImageProvider_RequestImageRejectsInvalidReferences(t *testin
 	require.Zero(t, calls.Load())
 }
 
-func TestOpenAIBatchImageProvider_RejectsNonGPTImage2Mapping(t *testing.T) {
+func TestOpenAIBatchImageProvider_MappingGuardrails(t *testing.T) {
 	provider := NewOpenAIBatchImageProvider(openAIBatchTestOptions(t.TempDir()))
 	input := openAIBatchTestInput()
-	account := openAIBatchTestAccount("sk-test", "https://api.openai.com")
-	account.Credentials["model_mapping"] = map[string]any{"gpt-image-2": "gpt-image-3"}
 
-	job, err := provider.Submit(context.Background(), nil, account, input)
+	// Provider 底线：映射目标是 Gemini 系生图模型时拒绝提交，openai 批量
+	// 永不路由到 Gemini 上游。
+	gemini := openAIBatchTestAccount("sk-test", "https://api.openai.com")
+	gemini.Credentials["model_mapping"] = map[string]any{"gpt-image-2": "nano-banana-1k"}
+	job, err := provider.Submit(context.Background(), nil, gemini, input)
 	require.Error(t, err)
 	require.Nil(t, job)
+
+	// 分组内配置的上游别名（如 image-2-web）不再被字面量拦截；
+	// 「目标必须属于分组模型全集」由 service 层的分组校验负责。
+	alias := openAIBatchTestAccount("sk-test", "https://api.openai.com")
+	alias.Credentials["model_mapping"] = map[string]any{"gpt-image-2": "image-2-web"}
+	job, err = provider.Submit(context.Background(), nil, alias, input)
+	require.NoError(t, err)
+	require.NotNil(t, job)
+	require.NotEmpty(t, job.ProviderJobName)
 }
 func TestOpenAIBatchImageProvider_CancelStopsExecution(t *testing.T) {
 	provider := NewOpenAIBatchImageProvider(openAIBatchTestOptions(t.TempDir()))

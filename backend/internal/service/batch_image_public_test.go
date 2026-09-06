@@ -617,6 +617,30 @@ func TestBatchImagePublicService_ListModels(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, got.Data, 1)
 		require.Equal(t, "gpt-image-2", got.Data[0].ID)
+		// 分组内配置的上游别名（image-2-web）可以列出：映射目标属于分组模型
+		// 全集即可，不再要求 gpt-image-2 字面量。
+		account.Credentials["model_mapping"] = map[string]any{"gpt-image-2": "image-2-web"}
+		got, err = svc.ListModels(ctx, owner)
+		require.NoError(t, err)
+		require.Len(t, got.Data, 1)
+		require.Equal(t, "gpt-image-2", got.Data[0].ID)
+		// 分组模型全集取所有账号映射的并集：其他账号的 nano-banana 配置既不
+		// 贡献批量模型，也不会误拦本账号的别名映射。
+		other := testBatchImageAccount(304, AccountTypeAPIKey)
+		other.Platform = PlatformOpenAI
+		other.Credentials["model_mapping"] = map[string]any{"nano-banana-1k": "nano-banana-1k"}
+		svc.AccountRepo.(*publicBatchImageAccountRepo).accounts = []Account{account, other}
+		got, err = svc.ListModels(ctx, owner)
+		require.NoError(t, err)
+		require.Len(t, got.Data, 1)
+		require.Equal(t, "gpt-image-2", got.Data[0].ID)
+		// Mapping gpt-image-2 onto a Gemini image upstream is never advertised.
+		account.Credentials["model_mapping"] = map[string]any{"gpt-image-2": "nano-banana-1k"}
+		got, err = svc.ListModels(ctx, owner)
+		require.NoError(t, err)
+		require.Empty(t, got.Data)
+		// 恢复映射状态，避免 nano-banana 场景污染后续定价档位断言。
+		account.Credentials["model_mapping"] = map[string]any{"gpt-image-2": "gpt-image-2"}
 		group.ImagePrice1K = nil
 		got, err = svc.ListModels(ctx, owner)
 		require.NoError(t, err)

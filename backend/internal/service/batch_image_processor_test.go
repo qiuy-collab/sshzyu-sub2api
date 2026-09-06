@@ -85,6 +85,20 @@ func TestBatchImageInternalResult_IndexAndDownload(t *testing.T) {
 	require.Equal(t, "SAFETY_BLOCKED", failure.ErrorCode)
 }
 
+func TestBatchImageInternalResult_GeminiLocalExecutorLinesAreIndexed(t *testing.T) {
+	// Gemini 本地降级执行器写出的内部结果行（provider=gemini_api）必须能被索引；
+	// 白名单漏掉它会让整批被误标 INDEX_PARSE_FAILED，而子项停在 pending。
+	line := `{"format":"batch-image/v1","provider":"gemini_api","key":"ok","images":[{"mime_type":"image/png","base64_data":"` + batchImageTestData + `"}]}`
+	parsed, err := ParseBatchImageResultLine([]byte(line), 1)
+	require.NoError(t, err)
+	require.Equal(t, BatchImageParsedStatusSucceeded, parsed.Status)
+	require.Equal(t, 1, parsed.ImageCount)
+	parts, err := ExtractBatchImagePartsFromResultLine([]byte(line))
+	require.NoError(t, err)
+	require.Len(t, parts.Images, 1)
+	require.Equal(t, batchImageTestData, parts.Images[0].Base64Data)
+}
+
 func TestBatchImageInternalResult_RejectsMalformedAndNeverFallsBack(t *testing.T) {
 	for _, line := range []string{
 		`{"format":"batch-image/v2","provider":"openai","key":"x"}`,

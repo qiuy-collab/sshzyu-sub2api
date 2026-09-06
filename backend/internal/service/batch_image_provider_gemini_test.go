@@ -8,8 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
@@ -280,6 +286,7 @@ func jobWithProviderName(name string) *BatchImageJob {
 }
 
 type fakeGeminiBatchClient struct {
+	mu                  sync.Mutex
 	calls               []string
 	uploaded            *GeminiUploadedFile
 	created             *GeminiBatchJob
@@ -297,6 +304,11 @@ type fakeGeminiBatchClient struct {
 	downloadBody        string
 	downloadContentType string
 	deletedFiles        []string
+
+	generatedModels   []string
+	generatedRequests []*geminiGenerateRequest
+	generateResponse  *GeminiGenerateContentResponse
+	generateErr       error
 }
 
 func (f *fakeGeminiBatchClient) UploadJSONL(_ context.Context, apiKey string, _ string, r io.Reader) (*GeminiUploadedFile, error) {
@@ -357,4 +369,240 @@ func (f *fakeGeminiBatchClient) DeleteFile(_ context.Context, _ string, fileName
 	f.calls = append(f.calls, "delete")
 	f.deletedFiles = append(f.deletedFiles, fileName)
 	return f.deleteErr
+}
+
+// TestGeminiProvider_SubmitFallsBackToLocalOnHTMLUpload proves that a relay
+// answering the Files endpoint with an HTML page (new-api style catch-all)
+// degrades to the local executor instead of failing the whole submission.
+func TestGeminiProvider_SubmitFallsBackToLocalOnHTMLUpload(t *testing.T) {
+	client := &fakeGeminiBatchClient{uploadErr: &GeminiUnsupportedEndpointError{StatusCode: 200, Endpoint: "/upload/v1beta/files"}}
+	provider := NewGeminiAPIBatchImageProviderWithOptions(client, t.TempDir(), time.Minute)
+
+	got, err := provider.Submit(context.Background(), nil, geminiAPIKeyAccount("sk-secret"), validGeminiBatchInput())
+	require.NoError(t, err)
+	require.Equal(t, []string{"upload"}, client.calls) // no CreateBatch attempt
+	require.Equal(t, "imgbatch_123", got.ProviderJobName)
+	require.Equal(t, "imgbatch_123.input.json", got.ProviderInputRef)
+	require.Empty(t, got.ProviderOutputRef)
+}
+
+func TestGeminiProvider_SubmitFallsBackToLocalOnUpload404(t *testing.T) {
+	client := &fakeGeminiBatchClient{uploadErr: &GeminiAPIError{StatusCode: 404, Message: "invalid url"}}
+	provider := NewGeminiAPIBatchImageProviderWithOptions(client, t.TempDir(), time.Minute)
+
+	got, err := provider.Submit(context.Background(), nil, geminiAPIKeyAccount("sk-secret"), validGeminiBatchInput())
+	require.NoError(t, err)
+	require.Equal(t, "imgbatch_123.input.json", got.ProviderInputRef)
+	require.Equal(t, []string{"upload"}, client.calls)
+}
+
+func TestGeminiProvider_SubmitDoesNotFallbackOnServerError(t *testing.T) {
+	client := &fakeGeminiBatchClient{uploadErr: &GeminiAPIError{StatusCode: 500, Message: "boom"}}
+	provider := NewGeminiAPIBatchImageProviderWithOptions(client, t.TempDir(), time.Minute)
+
+	_, err := provider.Submit(context.Background(), nil, geminiAPIKeyAccount("sk-secret"), validGeminiBatchInput())
+	require.Error(t, err)
+	require.Equal(t, "GEMINI_INVALID_RESPONSE", infraerrors.Reason(err))
+	require.Equal(t, []string{"upload"}, client.calls)
+}
+
+func TestGeminiProvider_LocalGetExecutesItemsAndWritesNeutralOutput(t *testing.T) {
+	client := &fakeGeminiBatchClient{uploadErr: &GeminiUnsupportedEndpointError{StatusCode: 200, Endpoint: "/upload/v1beta/files"}}
+	provider := NewGeminiAPIBatchImageProviderWithOptions(client, t.TempDir(), time.Minute)
+	ctx := context.Background()
+
+	providerJob, err := provider.Submit(ctx, nil, geminiAPIKeyAccount("sk-secret"), twoItemGeminiBatchInput())
+	require.NoError(t, err)
+	job := jobWithProviderRefs(providerJob)
+
+	status, err := provider.Get(ctx, job, geminiAPIKeyAccount("sk-secret"))
+	require.NoError(t, err)
+	require.Equal(t, BatchProviderStateSucceeded, status.InternalState)
+	require.True(t, status.Done)
+	require.Equal(t, "imgbatch_123.output.jsonl", status.ProviderOutputRef)
+	// The upstream model name is what reaches the relay (mapped identity here).
+	require.Equal(t, []string{"gemini-3.1-flash-image", "gemini-3.1-flash-image"}, client.generatedModels)
+
+	lines := readGeminiLocalOutputLines(t, provider, status.ProviderOutputRef)
+	require.Len(t, lines, 2)
+	require.Equal(t, "cover_001", lines[0]["key"])
+	require.Equal(t, BatchImageProviderGeminiAPI, lines[0]["provider"])
+	require.Equal(t, batchImageInternalResultFormat, lines[0]["format"])
+	images := lines[0]["images"].([]any)
+	require.Len(t, images, 1)
+	require.Equal(t, "image/png", images[0].(map[string]any)["mime_type"])
+	require.Equal(t, "cG5nLWJ5dGVz", images[0].(map[string]any)["base64_data"])
+
+	// A completed local job is terminal: a repeated Get must not re-execute.
+	client.calls = nil
+	status, err = provider.Get(ctx, job, geminiAPIKeyAccount("sk-secret"))
+	require.NoError(t, err)
+	require.True(t, status.Done)
+	require.Empty(t, client.calls)
+}
+
+func TestGeminiProvider_LocalGetIsolatesFailuresWithRetryBudget(t *testing.T) {
+	client := &fakeGeminiBatchClient{
+		uploadErr:   &GeminiUnsupportedEndpointError{StatusCode: 200, Endpoint: "/upload/v1beta/files"},
+		generateErr: &GeminiAPIError{StatusCode: 429, Message: "rate limited"},
+	}
+	provider := NewGeminiAPIBatchImageProviderWithOptions(client, t.TempDir(), time.Minute)
+	ctx := context.Background()
+
+	providerJob, err := provider.Submit(ctx, nil, geminiAPIKeyAccount("sk-secret"), twoItemGeminiBatchInput())
+	require.NoError(t, err)
+	job := jobWithProviderRefs(providerJob)
+
+	status, err := provider.Get(ctx, job, geminiAPIKeyAccount("sk-secret"))
+	require.NoError(t, err)
+	require.Equal(t, BatchProviderStateSucceeded, status.InternalState)
+
+	// Each item must stop after exactly two paid attempts; no whole-batch retry.
+	require.Len(t, client.generatedModels, 4)
+
+	lines := readGeminiLocalOutputLines(t, provider, status.ProviderOutputRef)
+	require.Len(t, lines, 2)
+	for _, line := range lines {
+		errObj := line["error"].(map[string]any)
+		require.Equal(t, "GEMINI_RATE_LIMITED", errObj["code"])
+	}
+}
+
+func TestGeminiProvider_LocalGetExtractsNoImageOutputAsTerminalError(t *testing.T) {
+	client := &fakeGeminiBatchClient{
+		uploadErr: &GeminiUnsupportedEndpointError{StatusCode: 200, Endpoint: "/upload/v1beta/files"},
+		generateResponse: &GeminiGenerateContentResponse{
+			Candidates: []GeminiGenerateCandidate{{FinishReason: "IMAGE_SAFETY"}},
+		},
+	}
+	provider := NewGeminiAPIBatchImageProviderWithOptions(client, t.TempDir(), time.Minute)
+	ctx := context.Background()
+
+	providerJob, err := provider.Submit(ctx, nil, geminiAPIKeyAccount("sk-secret"), validGeminiBatchInput())
+	require.NoError(t, err)
+	job := jobWithProviderRefs(providerJob)
+
+	status, err := provider.Get(ctx, job, geminiAPIKeyAccount("sk-secret"))
+	require.NoError(t, err)
+	require.True(t, status.Done)
+
+	lines := readGeminiLocalOutputLines(t, provider, status.ProviderOutputRef)
+	require.Len(t, lines, 1)
+	errObj := lines[0]["error"].(map[string]any)
+	require.Equal(t, "GEMINI_BATCH_NO_IMAGE_OUTPUT", errObj["code"])
+	// The fixed local message may include the finish reason, never the key.
+	require.NotContains(t, errObj["message"], "sk-secret")
+	// A 2xx without images is terminal: exactly one paid attempt.
+	require.Len(t, client.generatedModels, 1)
+}
+
+// TestGeminiProvider_SubmitUsesAccountBaseURL is the regression test for the
+// root cause of GEMINI_INVALID_RESPONSE on relays: the batch client must hit
+// the account's own base_url instead of AI Studio.
+func TestGeminiProvider_SubmitUsesAccountBaseURL(t *testing.T) {
+	var gotPaths, gotKeys []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path)
+		gotKeys = append(gotKeys, r.Header.Get("x-goog-api-key"))
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/upload/v1beta/files" {
+			_, _ = w.Write([]byte(`{"file":{"name":"files/probe"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"name":"batches/probe","state":"JOB_STATE_PENDING"}`))
+	}))
+	defer server.Close()
+
+	account := geminiAPIKeyAccount("sk-relay-key")
+	account.Credentials["base_url"] = server.URL
+	provider := NewGeminiAPIBatchImageProviderWithOptions(nil, t.TempDir(), time.Minute)
+
+	got, err := provider.Submit(context.Background(), nil, account, validGeminiBatchInput())
+	require.NoError(t, err)
+	// Both the Files upload and the batch creation must hit the account's own
+	// base_url — never AI Studio.
+	require.Equal(t, []string{"/upload/v1beta/files", "/v1beta/models/gemini-3.1-flash-image:batchGenerateContent"}, gotPaths)
+	require.Equal(t, []string{"sk-relay-key", "sk-relay-key"}, gotKeys)
+	require.Equal(t, "files/probe", got.ProviderInputRef)
+}
+
+// TestGeminiProvider_LocalGenerateContentUsesAccountBaseURL proves the degraded
+// executor posts to the relay's own :generateContent endpoint.
+func TestGeminiProvider_LocalGenerateContentUsesAccountBaseURL(t *testing.T) {
+	var gotPath, gotKey string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotKey = r.Header.Get("x-goog-api-key")
+		if r.URL.Path == "/upload/v1beta/files" {
+			// Relay fallback page: no Files API → degrade to local execution.
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte("<!doctype html><html><body>fallback</body></html>"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"cG5n"}}]}}]}`))
+	}))
+	defer server.Close()
+
+	account := geminiAPIKeyAccount("sk-relay-key")
+	account.Credentials["base_url"] = server.URL
+	provider := NewGeminiAPIBatchImageProviderWithOptions(nil, t.TempDir(), time.Minute)
+	ctx := context.Background()
+
+	providerJob, err := provider.Submit(ctx, nil, account, validGeminiBatchInput())
+	require.NoError(t, err)
+	job := jobWithProviderRefs(providerJob)
+
+	status, err := provider.Get(ctx, job, account)
+	require.NoError(t, err)
+	require.True(t, status.Done)
+	require.Equal(t, "/v1beta/models/gemini-3.1-flash-image:generateContent", gotPath)
+	require.Equal(t, "sk-relay-key", gotKey)
+}
+
+func twoItemGeminiBatchInput() BatchImageInput {
+	input := validGeminiBatchInput()
+	input.Items = append(input.Items, BatchImageInputItem{CustomID: "cover_002", Prompt: "Second prompt"})
+	return input
+}
+
+func jobWithProviderRefs(providerJob *BatchProviderJob) *BatchImageJob {
+	inputRef := providerJob.ProviderInputRef
+	jobName := providerJob.ProviderJobName
+	return &BatchImageJob{BatchID: "imgbatch_123", ProviderJobName: &jobName, ProviderInputRef: &inputRef}
+}
+
+func readGeminiLocalOutputLines(t *testing.T, provider *GeminiAPIBatchImageProvider, outputRef string) []map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(provider.local.dataDir, filepath.Base(outputRef)))
+	require.NoError(t, err)
+	var lines []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var obj map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &obj))
+		lines = append(lines, obj)
+	}
+	return lines
+}
+
+func (f *fakeGeminiBatchClient) GenerateContent(_ context.Context, apiKey string, model string, request *geminiGenerateRequest) (*GeminiGenerateContentResponse, error) {
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, errors.New("missing api key")
+	}
+	f.mu.Lock()
+	f.calls = append(f.calls, "generate")
+	f.generatedModels = append(f.generatedModels, model)
+	f.generatedRequests = append(f.generatedRequests, request)
+	f.mu.Unlock()
+	if f.generateErr != nil {
+		return nil, f.generateErr
+	}
+	if f.generateResponse != nil {
+		return f.generateResponse, nil
+	}
+	return &GeminiGenerateContentResponse{
+		Candidates: []GeminiGenerateCandidate{{
+			Content: &GeminiGenerateContent{Parts: []geminiPart{{InlineData: &geminiInlineData{MimeType: "image/png", Data: "cG5nLWJ5dGVz"}}}},
+		}},
+	}, nil
 }
