@@ -9,6 +9,7 @@ import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
 import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore } from '@/stores'
 import { getSetupStatus } from '@/api/setup'
 import { updateFavicon } from '@/utils/branding'
+import { BRAND_LOGO, resolveBrandName } from '@/utils/brandIdentity'
 
 const router = useRouter()
 const route = useRoute()
@@ -24,16 +25,14 @@ function updateDocumentTitle() {
     ...(appStore.cachedPublicSettings?.custom_menu_items ?? []),
     ...(authStore.isAdmin ? adminSettingsStore.customMenuItems : []),
   ]
-  document.title = resolveRouteDocumentTitle(route, appStore.siteName, customMenuItems)
+  document.title = resolveRouteDocumentTitle(route, resolveBrandName(appStore.siteName), customMenuItems)
 }
 
 // Watch for site settings changes and update favicon/title
 watch(
   () => appStore.siteLogo,
   (newLogo) => {
-    if (newLogo) {
-      updateFavicon(newLogo)
-    }
+    updateFavicon(newLogo || BRAND_LOGO)
   },
   { immediate: true }
 )

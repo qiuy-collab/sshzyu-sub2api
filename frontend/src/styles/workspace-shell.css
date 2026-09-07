@@ -1,0 +1,697 @@
+/* SSHZYU workspace: a neutral shell around the existing application behavior. */
+.workspace-shell {
+  --workspace-canvas: #f5f5f7;
+  --workspace-surface: #ffffff;
+  --workspace-sidebar: #fbfbfc;
+  --workspace-ink: #1d1d1f;
+  --workspace-muted: #6e6e73;
+  --workspace-divider: #e5e5e7;
+  --workspace-soft: #f0f0f2;
+  --workspace-selected: #eaf3ff;
+  --workspace-accent: #0071e3;
+  background: var(--workspace-canvas);
+  color: var(--workspace-ink);
+}
+
+.dark .workspace-shell {
+  --workspace-canvas: #161618;
+  --workspace-surface: #202023;
+  --workspace-sidebar: #1b1b1e;
+  --workspace-ink: #f5f5f7;
+  --workspace-muted: #a1a1a8;
+  --workspace-divider: #353538;
+  --workspace-soft: #2b2b2f;
+  --workspace-selected: #18304b;
+  --workspace-accent: #5aa8fa;
+}
+
+.workspace-body {
+  transition: margin-left 180ms ease;
+}
+
+.workspace-shell .sidebar {
+  background: var(--workspace-sidebar);
+  border-color: var(--workspace-divider);
+  box-shadow: none;
+  transition-duration: 180ms;
+}
+
+.workspace-shell .sidebar-header {
+  flex-shrink: 0;
+  height: 64px;
+  gap: 11px;
+  padding: 0 22px;
+  border-bottom-color: transparent;
+}
+
+.workspace-shell .sidebar-header.sidebar-header-collapsed {
+  gap: 0;
+  padding: 0 18px;
+}
+
+.workspace-shell .sidebar-brand-title {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.workspace-shell .sidebar-nav {
+  padding-top: 20px;
+  padding-bottom: 12px;
+  overscroll-behavior: contain;
+}
+
+.workspace-shell .sidebar-link {
+  min-height: 40px;
+  gap: 11px;
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: var(--workspace-muted);
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 160ms ease, background-color 160ms ease;
+}
+
+.workspace-shell .sidebar-link:hover {
+  background: var(--workspace-soft);
+  color: var(--workspace-ink);
+}
+
+.workspace-shell .sidebar-link-active,
+.workspace-shell .sidebar-link-active:hover {
+  background: var(--workspace-selected);
+  color: var(--workspace-accent);
+  font-weight: 600;
+}
+
+.workspace-shell .sidebar-link-collapsed {
+  justify-content: center;
+  gap: 0;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+.workspace-shell .sidebar-label-flex {
+  flex: 1;
+}
+
+.workspace-shell .sidebar-children {
+  margin-left: 22px;
+  padding-left: 10px;
+  border-color: var(--workspace-divider);
+}
+
+.workspace-shell .sidebar-children .sidebar-link {
+  min-height: 36px;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.workspace-shell .sidebar-children .sidebar-link > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-shell .sidebar-section {
+  margin-bottom: 24px;
+}
+
+.workspace-shell .sidebar-section-title {
+  margin-bottom: 9px;
+  color: var(--workspace-muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.workspace-shell .sidebar-footer {
+  flex-shrink: 0;
+  border-color: var(--workspace-divider);
+}
+
+.workspace-header {
+  background: var(--workspace-surface);
+  border-bottom: 1px solid var(--workspace-divider);
+}
+
+.workspace-page-title {
+  line-height: 1.35;
+  letter-spacing: -0.025em;
+}
+
+.workspace-page-description {
+  margin-top: 3px;
+  max-width: 32rem;
+}
+
+.workspace-balance {
+  background: var(--workspace-soft);
+  white-space: nowrap;
+}
+
+.workspace-avatar {
+  background: var(--workspace-soft);
+  color: var(--workspace-ink);
+  border: 1px solid var(--workspace-divider);
+}
+
+.workspace-header .workspace-subscriptions > button {
+  background: var(--workspace-soft);
+}
+
+.workspace-header .workspace-subscriptions > button > svg,
+.workspace-header .workspace-subscriptions > button > div > span {
+  color: var(--workspace-muted);
+}
+
+.workspace-header .workspace-subscriptions > button:hover {
+  background: var(--workspace-divider);
+}
+
+.workspace-shell .dashboard-overview,
+.workspace-shell .dashboard-charts,
+.workspace-shell .dashboard-section {
+  min-width: 0;
+}
+
+.workspace-shell .dashboard-section {
+  background: var(--workspace-surface);
+  border: 1px solid var(--workspace-divider);
+  border-radius: 20px;
+  box-shadow: none;
+}
+
+.dashboard-section-heading {
+  padding: 20px 24px 16px;
+  margin: 0;
+}
+
+.dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  background: var(--workspace-surface);
+  border: 1px solid var(--workspace-divider);
+  overflow: hidden;
+}
+
+.dashboard-metrics-primary {
+  border-radius: 20px 20px 0 0;
+}
+
+.dashboard-metrics-secondary {
+  margin-top: -1px;
+  border-radius: 0 0 20px 20px;
+}
+
+.dashboard-metric {
+  min-width: 0;
+  padding: 22px 24px;
+}
+
+.dashboard-metric:nth-child(even) {
+  border-left: 1px solid var(--workspace-divider);
+}
+
+.dashboard-metric:nth-child(n + 3) {
+  border-top: 1px solid var(--workspace-divider);
+}
+
+.dashboard-metric-layout {
+  position: relative;
+  min-width: 0;
+}
+
+.dashboard-metric-icon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  color: var(--workspace-muted);
+  opacity: 0.7;
+}
+
+.workspace-shell .dashboard-metric-icon svg {
+  width: 17px;
+  height: 17px;
+  color: inherit;
+  stroke-width: 1.6;
+}
+
+.dashboard-metric-layout > div:last-child > p:first-child {
+  padding-right: 22px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workspace-shell .dashboard-metric .text-xl {
+  margin: 10px 0 5px;
+  color: var(--workspace-ink);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.workspace-shell .dashboard-metric .text-purple-600,
+.workspace-shell .dashboard-metric .text-violet-600 {
+  color: var(--workspace-ink);
+}
+
+.workspace-shell .dashboard-metric .text-xl > span + span {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.dashboard-metric-layout > div:last-child > p:last-child {
+  line-height: 1.65;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-metrics-secondary .dashboard-metric {
+  padding-top: 20px;
+  padding-bottom: 20px;
+}
+
+.workspace-shell .dashboard-metrics-secondary .text-xl {
+  font-size: 23px;
+}
+
+.dashboard-platforms {
+  margin-top: 24px;
+}
+
+.dashboard-platform-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0 24px 22px;
+  gap: 22px 28px;
+}
+
+.dashboard-platform {
+  min-width: 0;
+  border-top: 1px solid var(--workspace-divider);
+  padding-top: 16px;
+}
+
+.dashboard-platform-other {
+  border-top-style: dashed;
+}
+
+.dashboard-chart-toolbar {
+  padding: 2px 0;
+}
+
+.dashboard-chart-grid,
+.dashboard-activity-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+}
+
+.dashboard-model-content {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 4px 24px 24px;
+  min-height: 228px;
+}
+
+.dashboard-model-ring {
+  width: 156px;
+  height: 156px;
+}
+
+.dashboard-model-table {
+  min-width: 320px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-model-table th,
+.dashboard-model-table td {
+  padding-right: 10px;
+  white-space: nowrap;
+}
+
+.dashboard-model-table th:last-child,
+.dashboard-model-table td:last-child {
+  padding-right: 0;
+}
+
+.workspace-shell .dashboard-token-trend {
+  min-width: 0;
+  padding: 20px 24px 24px;
+  background: var(--workspace-surface);
+  border: 1px solid var(--workspace-divider);
+  border-radius: 20px;
+  box-shadow: none;
+}
+
+.dashboard-quick-actions,
+.dashboard-recent-usage {
+  height: 100%;
+}
+
+.dashboard-action-list {
+  padding: 0 12px 12px;
+}
+
+.dashboard-action {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 17px 12px;
+  text-align: left;
+  border-radius: 12px;
+  transition: background-color 160ms ease;
+}
+
+.dashboard-action + .dashboard-action {
+  border-top: 1px solid var(--workspace-divider);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.dashboard-action:hover {
+  background: var(--workspace-soft);
+}
+
+.dashboard-action-icon {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-shell .dashboard-action-icon svg {
+  width: 20px;
+  height: 20px;
+  color: var(--workspace-muted);
+}
+
+.dashboard-action p + p {
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.dashboard-usage-content {
+  padding: 0 24px;
+}
+
+.dashboard-usage-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--workspace-divider);
+}
+
+.dashboard-usage-row p + p {
+  margin-top: 4px;
+}
+
+.dashboard-usage-cost {
+  white-space: nowrap;
+}
+
+@media (min-width: 1280px) {
+  .dashboard-metrics,
+  .dashboard-platform-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .dashboard-metrics-simple {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-metric:nth-child(n + 3) {
+    border-top: 0;
+  }
+
+  .dashboard-metric + .dashboard-metric {
+    border-left: 1px solid var(--workspace-divider);
+  }
+
+  .dashboard-activity-grid {
+    grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr);
+  }
+
+  .dashboard-chart-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-model-content {
+    gap: 16px;
+  }
+
+  .dashboard-model-ring {
+    width: 124px;
+    height: 124px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .dashboard-model-ring {
+    width: 156px;
+    height: 156px;
+  }
+}
+
+@media (max-width: 639px) {
+  .workspace-page-title {
+    font-size: 14px;
+  }
+
+  .workspace-header .workspace-subscriptions > button {
+    padding: 7px 8px;
+    gap: 5px;
+  }
+
+  .workspace-header .workspace-subscriptions > .absolute {
+    position: fixed;
+    top: 64px;
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
+
+  .workspace-header .dropdown {
+    max-width: calc(100vw - 24px);
+  }
+
+  .dashboard-section-heading {
+    padding: 18px 18px 14px;
+  }
+
+  .dashboard-metric,
+  .dashboard-metrics-secondary .dashboard-metric {
+    padding: 18px 16px;
+  }
+
+  .workspace-shell .dashboard-metric .text-xl {
+    font-size: 25px;
+  }
+
+  .workspace-shell .dashboard-metrics-secondary .text-xl {
+    font-size: 22px;
+  }
+
+  .dashboard-platform-grid {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0 18px 18px;
+    gap: 18px;
+  }
+
+  .dashboard-chart-toolbar > div > div:first-child {
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .dashboard-model-content {
+    flex-direction: column;
+    gap: 20px;
+    padding: 4px 18px 20px;
+  }
+
+  .workspace-shell .dashboard-token-trend {
+    padding: 18px;
+  }
+
+  .dashboard-usage-content {
+    padding: 0 18px;
+  }
+
+  .dashboard-usage-row {
+    gap: 9px;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 14px 0;
+  }
+
+  .dashboard-usage-cost {
+    padding-left: 44px;
+    text-align: left;
+  }
+
+  .dashboard-usage-cost p {
+    display: inline;
+  }
+
+  .dashboard-usage-cost p + p {
+    margin-left: 10px;
+  }
+}
+
+/* Administrator overview uses the same metric rhythm, with its status signals intact. */
+.admin-dashboard .admin-dashboard-overview,
+.admin-dashboard .admin-dashboard-charts {
+  min-width: 0;
+}
+
+.admin-dashboard .admin-dashboard-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0 12px 12px;
+  gap: 0 16px;
+}
+
+.admin-dashboard .admin-dashboard-action {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  border-radius: 12px;
+  padding: 16px 12px;
+  text-align: left;
+  transition: background-color 160ms ease;
+}
+
+.admin-dashboard .admin-dashboard-action:hover {
+  background: var(--workspace-soft);
+}
+
+.admin-dashboard .admin-dashboard-action-icon {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--workspace-muted);
+}
+
+.admin-dashboard .admin-dashboard-action-icon svg {
+  stroke-width: 1.6;
+}
+
+.admin-dashboard .admin-dashboard-action .block + .block {
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.admin-dashboard .admin-dashboard-toolbar {
+  padding: 2px 0;
+}
+
+.admin-dashboard .admin-dashboard-chart-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+}
+
+.admin-dashboard .admin-dashboard-chart {
+  min-width: 0;
+  border: 1px solid var(--workspace-divider);
+  border-radius: 20px;
+  padding: 20px 24px 24px;
+  background: var(--workspace-surface);
+  box-shadow: none;
+}
+
+.admin-dashboard .admin-dashboard-model-chart > .mb-4 {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.admin-dashboard .admin-dashboard-model-chart > .mb-4 > h3 {
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+
+.admin-dashboard .admin-dashboard-model-chart table {
+  min-width: 320px;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-dashboard .admin-dashboard-model-chart th,
+.admin-dashboard .admin-dashboard-model-chart td {
+  padding-right: 10px;
+  white-space: nowrap;
+}
+
+.admin-dashboard .admin-dashboard-model-chart th:last-child,
+.admin-dashboard .admin-dashboard-model-chart td:last-child {
+  padding-right: 0;
+}
+
+@media (min-width: 1280px) {
+  .admin-dashboard .admin-dashboard-chart-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-dashboard .admin-dashboard-model-chart > .flex > .h-48.w-48 {
+    width: 124px;
+    height: 124px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .admin-dashboard .admin-dashboard-model-chart > .flex > .h-48.w-48 {
+    width: 156px;
+    height: 156px;
+  }
+}
+
+@media (max-width: 639px) {
+  .admin-dashboard .admin-dashboard-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-dashboard .admin-dashboard-action + .admin-dashboard-action {
+    border-top: 1px solid var(--workspace-divider);
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+
+  .admin-dashboard .admin-dashboard-range {
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .admin-dashboard .admin-dashboard-chart {
+    padding: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-dashboard .admin-dashboard-action,
+  .workspace-shell .workspace-body,
+  .workspace-shell .sidebar,
+  .workspace-shell .sidebar *,
+  .workspace-shell .dashboard-action,
+  .workspace-shell .dropdown-enter-active,
+  .workspace-shell .dropdown-leave-active {
+    transition: none;
+    animation: none;
+  }
+}
