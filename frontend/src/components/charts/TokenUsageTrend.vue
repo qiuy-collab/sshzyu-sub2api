@@ -59,13 +59,13 @@ const isDarkMode = computed(() => {
 })
 
 const chartColors = computed(() => ({
-  text: isDarkMode.value ? '#e5e7eb' : '#374151',
-  grid: isDarkMode.value ? '#374151' : '#e5e7eb',
-  input: '#3b82f6',
-  output: '#10b981',
-  cacheCreation: '#f59e0b',
-  cacheRead: '#06b6d4',
-  cacheHitRate: '#8b5cf6'
+  text: isDarkMode.value ? '#a1a1a8' : '#6e6e73',
+  grid: isDarkMode.value ? '#3a3a40' : '#eeeeef',
+  input: '#0071e3',
+  output: '#60758d',
+  cacheCreation: '#8394a8',
+  cacheRead: '#6aaceb',
+  cacheHitRate: '#648c85'
 }))
 
 const chartData = computed(() => {
@@ -126,6 +126,10 @@ const chartData = computed(() => {
 const lineOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  elements: {
+    line: { borderWidth: 2 },
+    point: { radius: 1.5, hoverRadius: 4 }
+  },
   interaction: {
     intersect: false,
     mode: 'index' as const
@@ -137,7 +141,9 @@ const lineOptions = computed(() => ({
         color: chartColors.value.text,
         usePointStyle: true,
         pointStyle: 'circle',
-        padding: 15,
+        boxWidth: 6,
+        boxHeight: 6,
+        padding: 18,
         font: {
           size: 11
         }

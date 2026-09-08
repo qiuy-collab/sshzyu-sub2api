@@ -21,6 +21,9 @@
 
     <!-- Charts Grid -->
     <div class="dashboard-chart-grid">
+      <!-- The main trend is read before the model breakdown. -->
+      <TokenUsageTrend class="dashboard-token-trend" :trend-data="trend" :loading="loading" />
+
       <!-- Model Distribution Chart -->
       <div class="dashboard-section dashboard-model-distribution relative overflow-hidden">
         <div v-if="loading" class="absolute inset-0 z-10 flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-dark-800/50">
@@ -56,9 +59,6 @@
           </div>
         </div>
       </div>
-
-      <!-- Token Usage Trend Chart -->
-      <TokenUsageTrend class="dashboard-token-trend" :trend-data="trend" :loading="loading" />
     </div>
   </div>
 </template>

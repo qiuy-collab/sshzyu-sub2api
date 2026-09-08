@@ -30,3 +30,11 @@ Frontend presentation only. No API contracts, routes/guards, store business beha
 
 ## Release constraints
 Start from production commit 2bc8cf91fd5d702a1284407e5c8f5114ac333ef3. Build and verify locally. Keep the running backend, PostgreSQL and Redis intact. Publish versioned static assets with a reversible nginx configuration change only after preflight, backup and health checks. Keep old assets available to already-open browser sessions.
+
+## Workspace revision — September 8
+
+The first workspace revision changed styling without sufficiently changing the composition. This revision gives the operational product its own clear structure: an inset Finder-like navigation Dock and one white working surface on a pearl-grey canvas. The header identifies the current task with a readable title; its utilities remain compact.
+
+Navigation uses a management/personal context switch and task-based groups so an administrator does not scan both sets of links at once. Every existing route, custom menu, feature flag and permission remains reachable. The mobile drawer opens with full labels and explicit close control.
+
+The administrator overview leads with today's activity and explicitly labeled costs, then quieter cumulative/resource readings. A single date/filter/refresh toolbar controls the existing charts. The user dashboard uses the same typography, divisions and chart palette, with its main usage trend ahead of detailed platform data. Data pages share the same rounded filter area, readable table header and compact actions. Hover, drawer and collapse transitions are brief and respect reduced-motion preferences.

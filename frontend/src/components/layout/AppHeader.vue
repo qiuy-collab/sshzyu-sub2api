@@ -1,6 +1,6 @@
 <template>
   <header class="workspace-header sticky top-0 z-30">
-    <div class="workspace-header-inner flex h-16 items-center justify-between gap-2 px-3 sm:px-4 md:px-6 lg:px-8">
+    <div class="workspace-header-inner flex items-center justify-between gap-4">
       <!-- Left: Mobile Menu Toggle + Page Title -->
       <div class="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <button
@@ -12,10 +12,10 @@
         </button>
 
         <div class="min-w-0">
-          <h1 class="workspace-page-title truncate text-base font-semibold text-gray-900 dark:text-white" :title="pageTitle">
+          <h1 class="workspace-page-title truncate font-semibold text-gray-900 dark:text-white" :title="pageTitle">
             {{ pageTitle }}
           </h1>
-          <p v-if="pageDescription" class="workspace-page-description hidden truncate text-xs text-gray-500 dark:text-dark-400 lg:block" :title="pageDescription">
+          <p v-if="pageDescription" class="workspace-page-description hidden truncate text-gray-500 dark:text-dark-400 lg:block" :title="pageDescription">
             {{ pageDescription }}
           </p>
         </div>

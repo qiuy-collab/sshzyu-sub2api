@@ -340,18 +340,18 @@ const distributionColspan = computed(() => showAccountCost.value ? 6 : 5)
 const activeView = ref<'model_distribution' | 'spending_ranking'>('model_distribution')
 
 const chartColors = [
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#ef4444',
-  '#8b5cf6',
-  '#ec4899',
-  '#14b8a6',
-  '#f97316',
-  '#6366f1',
-  '#84cc16',
-  '#06b6d4',
-  '#a855f7'
+  '#0071e3',
+  '#33465f',
+  '#74ace2',
+  '#80949d',
+  '#b0bcc8',
+  '#5d8dba',
+  '#69948e',
+  '#a99b83',
+  '#8994b1',
+  '#4b6b8a',
+  '#a0b7c7',
+  '#789bad'
 ]
 
 const displayModelStats = computed(() => {
@@ -440,6 +440,8 @@ const rankingDisplayItems = computed<RankingDisplayItem[]>(() => {
 const doughnutOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  cutout: '76%',
+  spacing: 2,
   plugins: {
     legend: {
       display: false
@@ -463,6 +465,8 @@ const doughnutOptions = computed(() => ({
 const rankingDoughnutOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  cutout: '76%',
+  spacing: 2,
   plugins: {
     legend: {
       display: false

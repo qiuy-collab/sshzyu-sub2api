@@ -1,0 +1,472 @@
+/* The sidebar owns this surface. No application content or uploaded SVG is restyled. */
+.sidebar.dock-sidebar {
+  --dock-surface: rgba(255, 255, 255, 0.94);
+  --dock-ink: #242427;
+  --dock-muted: #77777e;
+  --dock-line: #e9e9ec;
+  --dock-hover: #f2f2f4;
+  --dock-selection: #e9eef5;
+  --dock-accent: #0071e3;
+  position: fixed;
+  top: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 40;
+  width: 238px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(224, 224, 229, 0.8);
+  border-radius: 22px;
+  background: var(--dock-surface);
+  box-shadow: 0 3px 18px -12px rgba(25, 25, 30, 0.2), 0 1px 2px rgba(25, 25, 30, 0.025);
+  color: var(--dock-ink);
+  transition: width 180ms ease, transform 180ms ease;
+}
+
+.dark .sidebar.dock-sidebar {
+  --dock-surface: #222225;
+  --dock-ink: #ededf0;
+  --dock-muted: #a0a0a8;
+  --dock-line: #343439;
+  --dock-hover: #2c2c31;
+  --dock-selection: #353b46;
+  --dock-accent: #78b5fc;
+  border-color: #343438;
+  box-shadow: 0 3px 20px -14px rgba(0, 0, 0, 0.5);
+}
+
+.sidebar.dock-sidebar.dock-is-collapsed {
+  width: 72px;
+}
+
+.dock-sidebar .dock-brand-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  height: auto;
+  min-height: 84px;
+  padding: 18px 18px 15px;
+  border: 0;
+}
+
+.dock-sidebar .dock-brand-mark {
+  display: flex;
+  flex: 0 0 34px;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 11px;
+  transition: opacity 140ms ease;
+}
+
+.dock-sidebar .dock-brand-mark:hover {
+  opacity: 0.75;
+}
+
+.dock-sidebar .dock-brand-name {
+  color: var(--dock-ink);
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.35;
+}
+
+.dock-sidebar .sidebar-brand > .relative {
+  margin-top: 3px;
+}
+
+.dock-sidebar .sidebar-brand > .relative > button {
+  padding: 1px 5px;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.dock-sidebar .dock-mobile-close {
+  display: none;
+}
+
+.dock-sidebar .dock-space-switch {
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin: 0 12px 18px;
+  padding: 3px;
+  background: var(--dock-hover);
+  border: 1px solid var(--dock-line);
+  border-radius: 12px;
+}
+
+.dock-sidebar .dock-space-button {
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 3px;
+  border-radius: 9px;
+  color: var(--dock-muted);
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.3;
+  white-space: nowrap;
+  transition: color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.dock-sidebar .dock-space-button svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.dock-sidebar .dock-space-button:hover {
+  color: var(--dock-ink);
+}
+
+.dock-sidebar .dock-space-button.dock-space-active {
+  background: var(--dock-surface);
+  color: var(--dock-ink);
+  box-shadow: 0 1px 3px rgba(25, 25, 30, 0.09);
+}
+
+.dock-sidebar .dock-space-active svg {
+  color: var(--dock-accent);
+}
+
+.dock-sidebar .dock-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 10px 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.dock-sidebar .dock-nav:hover {
+  scrollbar-color: #d7d7dc transparent;
+}
+
+.dock-sidebar .dock-nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dock-sidebar .dock-nav::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.dock-sidebar .dock-nav:hover::-webkit-scrollbar-thumb {
+  background: #d7d7dc;
+}
+
+.dark .dock-sidebar .dock-nav:hover {
+  scrollbar-color: #4a4a51 transparent;
+}
+
+.dark .dock-sidebar .dock-nav:hover::-webkit-scrollbar-thumb {
+  background: #4a4a51;
+}
+
+.dock-sidebar .dock-section {
+  margin: 0 0 18px;
+}
+
+.dock-sidebar .dock-section:last-child {
+  margin-bottom: 0;
+}
+
+.dock-sidebar .dock-section-title {
+  display: block;
+  min-height: 0;
+  margin: 0 0 6px;
+  padding: 0 12px;
+  color: var(--dock-muted);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.035em;
+  line-height: 1.5;
+  text-transform: none;
+}
+
+.dock-sidebar .dock-section-items {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dock-sidebar .dock-nav-item {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  color: var(--dock-ink);
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 20px;
+  text-align: left;
+  transition: color 140ms ease, background-color 140ms ease;
+}
+
+.dock-sidebar .dock-nav-item:hover {
+  background: var(--dock-hover);
+  color: var(--dock-ink);
+}
+
+.dock-sidebar .dock-nav-item.sidebar-link-active,
+.dock-sidebar .dock-nav-item.sidebar-link-active:hover {
+  background: var(--dock-selection);
+  color: var(--dock-ink);
+  font-weight: 600;
+}
+
+.dock-sidebar .dock-nav-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--dock-muted);
+  stroke-width: 1.5;
+}
+
+.dock-sidebar .dock-custom-icon {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.dock-sidebar .sidebar-link-active > .dock-nav-icon {
+  color: var(--dock-accent);
+}
+
+.dock-sidebar .sidebar-label-flex {
+  flex: 1;
+}
+
+.dock-sidebar .dock-group-current {
+  font-weight: 600;
+}
+
+.dock-sidebar .dock-chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--dock-muted);
+  transition: transform 150ms ease;
+}
+
+.dock-sidebar .dock-chevron-open {
+  transform: rotate(180deg);
+}
+
+.dock-sidebar .dock-subnav {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0 0 3px 20px;
+  padding-left: 8px;
+  border-left: 1px solid var(--dock-line);
+}
+
+.dock-sidebar .dock-nav-child {
+  min-height: 34px;
+  gap: 8px;
+  padding: 7px 9px;
+  font-size: 11px;
+  line-height: 20px;
+}
+
+.dock-sidebar .dock-nav-child .dock-nav-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.dock-sidebar .dock-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  margin: 0 12px;
+  padding: 11px 0 12px;
+  border-top: 1px solid var(--dock-line);
+}
+
+.dock-sidebar .dock-tool {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  color: var(--dock-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  transition: color 140ms ease, background-color 140ms ease;
+}
+
+.dock-sidebar .dock-tool:hover {
+  background: var(--dock-hover);
+  color: var(--dock-ink);
+}
+
+.dock-sidebar .dock-theme-button {
+  flex: 1;
+  justify-content: flex-start;
+  padding: 8px 10px;
+}
+
+.dock-sidebar .dock-collapse-button {
+  width: 36px;
+  flex-shrink: 0;
+}
+
+.dock-sidebar .dock-tool-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.dock-sidebar.dock-is-collapsed .dock-brand-header {
+  min-height: 76px;
+  justify-content: center;
+  padding: 19px 0 17px;
+}
+
+.dock-sidebar.dock-is-collapsed .dock-space-switch {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  margin: 0 11px 16px;
+}
+
+.dock-sidebar.dock-is-collapsed .dock-space-button {
+  min-height: 34px;
+}
+
+.dock-sidebar.dock-is-collapsed .dock-nav {
+  padding: 0 8px 12px;
+}
+
+.dock-sidebar.dock-is-collapsed .dock-nav-item {
+  min-height: 40px;
+  justify-content: center;
+  padding: 10px;
+}
+
+.dock-sidebar.dock-is-collapsed .dock-section + .dock-section {
+  padding-top: 12px;
+  border-top: 1px solid var(--dock-line);
+}
+
+.dock-sidebar.dock-is-collapsed .dock-section {
+  margin-bottom: 12px;
+}
+
+.dock-sidebar.dock-is-collapsed .dock-footer {
+  flex-direction: column;
+  gap: 3px;
+  margin: 0 10px;
+}
+
+.dock-sidebar.dock-is-collapsed .dock-tool {
+  width: 100%;
+  min-height: 36px;
+  justify-content: center;
+}
+
+.dock-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  background: rgba(22, 22, 26, 0.28);
+  backdrop-filter: blur(4px);
+}
+
+.dock-overlay-fade-enter-active,
+.dock-overlay-fade-leave-active {
+  transition: opacity 160ms ease;
+}
+
+.dock-overlay-fade-enter-from,
+.dock-overlay-fade-leave-to {
+  opacity: 0;
+}
+
+@media (min-width: 1024px) {
+  .dock-overlay {
+    display: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .sidebar.dock-sidebar,
+  .sidebar.dock-sidebar.dock-is-collapsed {
+    width: min(280px, calc(100vw - 24px));
+    transform: translateX(calc(-100% - 24px));
+  }
+
+  .sidebar.dock-sidebar.dock-is-open {
+    transform: translateX(0);
+  }
+
+  .dock-sidebar .dock-brand-header {
+    min-height: 82px;
+    padding: 16px 14px 16px 18px;
+  }
+
+  .dock-sidebar .dock-mobile-close {
+    display: flex;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    color: var(--dock-muted);
+  }
+
+  .dock-sidebar .dock-mobile-close:hover {
+    background: var(--dock-hover);
+  }
+
+  .dock-sidebar .dock-space-button {
+    min-height: 40px;
+    font-size: 12px;
+  }
+
+  .dock-sidebar .dock-nav-item,
+  .dock-sidebar .dock-nav-child,
+  .dock-sidebar .dock-tool {
+    min-height: 44px;
+    font-size: 13px;
+  }
+
+  .dock-sidebar .dock-collapse-button {
+    display: none;
+  }
+
+  .dock-sidebar .dock-nav {
+    scrollbar-color: #d7d7dc transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar.dock-sidebar,
+  .dock-sidebar *,
+  .dock-overlay-fade-enter-active,
+  .dock-overlay-fade-leave-active {
+    transition: none;
+    animation: none;
+  }
+}

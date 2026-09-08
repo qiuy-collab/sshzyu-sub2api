@@ -5,14 +5,14 @@
 
     <!-- Main Content Area -->
     <div
-      class="workspace-body relative min-h-screen"
-      :class="[sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-64']"
+      class="workspace-body relative"
+      :class="{ 'workspace-body-collapsed': sidebarCollapsed }"
     >
       <!-- Header -->
       <AppHeader />
 
       <!-- Main Content -->
-      <main class="workspace-content min-w-0 p-4 md:p-6 lg:p-8">
+      <main class="workspace-content min-w-0">
         <slot />
       </main>
     </div>

@@ -1,91 +1,119 @@
 <template>
   <aside
-    class="sidebar"
-    :class="[
-      sidebarCollapsed ? 'w-[72px]' : 'w-64',
-      { '-translate-x-full lg:translate-x-0': !mobileOpen }
-    ]"
+    ref="sidebarRef"
+    class="sidebar dock-sidebar"
+    :class="{ 'dock-is-collapsed': isDockCollapsed, 'dock-is-open': mobileOpen }"
+    :aria-label="dockText.navigation"
+    :aria-hidden="isMobileViewport && !mobileOpen ? 'true' : undefined"
+    :inert="isMobileViewport && !mobileOpen ? true : undefined"
   >
-    <!-- Logo/Brand -->
-    <div class="sidebar-header" :class="{ 'sidebar-header-collapsed': sidebarCollapsed }">
-      <!-- Custom Logo or Default Logo -->
+    <div class="sidebar-header dock-brand-header">
       <router-link
         :to="homePath"
-        class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl transition-opacity hover:opacity-80"
+        class="sidebar-logo dock-brand-mark"
         :aria-label="siteName"
         @click="handleMenuItemClick(homePath)"
       >
         <img v-if="settingsLoaded" :src="siteLogo || BRAND_LOGO" :alt="siteName" class="h-full w-full object-contain" />
       </router-link>
-      <div class="sidebar-brand" :class="{ 'sidebar-brand-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
+      <div v-show="!isDockCollapsed" class="sidebar-brand">
         <router-link
           :to="homePath"
-          class="sidebar-brand-title text-lg font-bold text-gray-900 transition-colors hover:text-primary-600 dark:text-white dark:hover:text-primary-400"
+          class="sidebar-brand-title dock-brand-name"
           @click="handleMenuItemClick(homePath)"
-        >
-          {{ siteName }}
-        </router-link>
-        <!-- Version Badge -->
+        >{{ siteName }}</router-link>
         <VersionBadge :version="siteVersion" />
       </div>
+      <button type="button" class="dock-mobile-close" :aria-label="t('common.close')" @click="closeMobile">
+        <Icon name="x" size="sm" />
+      </button>
     </div>
 
-    <!-- Navigation -->
-    <nav ref="sidebarNavRef" class="sidebar-nav scrollbar-hide">
-      <!-- Admin View: Admin menu first, then personal menu -->
-      <template v-if="isAdmin">
-        <!-- Admin Section -->
-        <div class="sidebar-section">
-          <template v-for="item in adminNavItems" :key="item.path">
-            <!-- Collapsible group (has children) -->
+    <div
+      v-if="canSwitchSpaces && !tourNavigationExpanded"
+      class="dock-space-switch"
+      role="group"
+      :aria-label="dockText.workspace"
+    >
+      <button
+        type="button"
+        class="dock-space-button"
+        :class="{ 'dock-space-active': navigationSpace === 'admin' }"
+        :aria-pressed="navigationSpace === 'admin'"
+        :aria-label="dockText.management"
+        :title="isDockCollapsed ? dockText.management : undefined"
+        @click="selectNavigationSpace('admin')"
+      >
+        <Icon name="grid" size="sm" />
+        <span v-if="!isDockCollapsed">{{ dockText.management }}</span>
+      </button>
+      <button
+        type="button"
+        class="dock-space-button"
+        :class="{ 'dock-space-active': navigationSpace === 'personal' }"
+        :aria-pressed="navigationSpace === 'personal'"
+        :aria-label="dockText.personal"
+        :title="isDockCollapsed ? dockText.personal : undefined"
+        @click="selectNavigationSpace('personal')"
+      >
+        <Icon name="user" size="sm" />
+        <span v-if="!isDockCollapsed">{{ dockText.personal }}</span>
+      </button>
+    </div>
+
+    <nav ref="sidebarNavRef" class="sidebar-nav dock-nav">
+      <section
+        v-for="section in visibleNavSections"
+        :key="section.id"
+        class="sidebar-section dock-section"
+        :aria-label="section.label"
+      >
+        <p v-if="!isDockCollapsed" class="sidebar-section-title dock-section-title">{{ section.label }}</p>
+        <div class="dock-section-items">
+          <template v-for="item in section.items" :key="item.path">
             <template v-if="item.children?.length">
               <button
                 type="button"
-                class="sidebar-link mb-1 w-full"
+                class="sidebar-link dock-nav-item dock-nav-group"
                 :class="{
                   'sidebar-link-active': isGroupActive(item) && !isGroupExpanded(item),
-                  'sidebar-link-collapsed': sidebarCollapsed
+                  'dock-group-current': isGroupActive(item),
+                  'sidebar-link-collapsed': isDockCollapsed
                 }"
-                :title="sidebarCollapsed ? item.label : undefined"
-                :aria-expanded="!sidebarCollapsed && isGroupExpanded(item)"
-                :aria-label="sidebarCollapsed ? item.label : undefined"
+                :title="isDockCollapsed ? item.label : undefined"
+                :aria-expanded="!isDockCollapsed && isGroupExpanded(item)"
+                :aria-label="isDockCollapsed ? item.label : undefined"
                 @click="handleGroupClick(item)"
               >
-                <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-                <span
-                  class="sidebar-label sidebar-label-flex"
-                  :class="{ 'sidebar-label-collapsed': sidebarCollapsed }"
-                  :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
-                >
+                <component :is="item.icon" class="dock-nav-icon" />
+                <span v-if="!isDockCollapsed" class="sidebar-label sidebar-label-flex">
                   <span class="min-w-0 truncate">{{ item.label }}</span>
-                  <ChevronDownIcon
-                    class="h-4 w-4 flex-shrink-0 transition-transform duration-200"
-                    :class="isGroupExpanded(item) ? 'rotate-180' : ''"
-                  />
+                  <ChevronDownIcon class="dock-chevron" :class="{ 'dock-chevron-open': isGroupExpanded(item) }" />
                 </span>
               </button>
-              <!-- Children -->
-              <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="sidebar-children mb-1 ml-4 border-l border-gray-200 pl-2 dark:border-dark-600">
+              <div v-if="!isDockCollapsed && isGroupExpanded(item)" class="sidebar-children dock-subnav">
                 <router-link
                   v-for="child in item.children"
                   :key="child.path"
                   :to="child.path"
-                  class="sidebar-link mb-0.5 py-1.5 text-sm"
+                  class="sidebar-link dock-nav-item dock-nav-child"
                   :class="{ 'sidebar-link-active': route.path === child.path }"
+                  :aria-current="route.path === child.path ? 'page' : undefined"
                   @click="handleMenuItemClick(child.path)"
                 >
-                  <component :is="child.icon" class="h-4 w-4 flex-shrink-0" />
-                  <span>{{ child.label }}</span>
+                  <component :is="child.icon" class="dock-nav-icon" />
+                  <span class="sidebar-label">{{ child.label }}</span>
                 </router-link>
               </div>
             </template>
-            <!-- Normal item (no children) -->
             <router-link
               v-else
               :to="item.path"
-              class="sidebar-link mb-1"
-              :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
-              :title="sidebarCollapsed ? item.label : undefined"
+              class="sidebar-link dock-nav-item"
+              :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': isDockCollapsed }"
+              :title="isDockCollapsed ? item.label : undefined"
+              :aria-label="isDockCollapsed ? item.label : undefined"
+              :aria-current="isActive(item.path) ? 'page' : undefined"
               :id="
                 item.path === '/admin/accounts'
                   ? 'sidebar-channel-manage'
@@ -95,98 +123,45 @@
                       ? 'sidebar-wallet'
                       : undefined
               "
+              :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
               @click="handleMenuItemClick(item.path)"
             >
-              <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-              <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-              <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+              <span v-if="item.iconSvg" class="sidebar-svg-icon dock-custom-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
+              <component v-else :is="item.icon" class="dock-nav-icon" />
+              <span v-if="!isDockCollapsed" class="sidebar-label">{{ item.label }}</span>
             </router-link>
           </template>
         </div>
-
-        <!-- Personal Section for Admin (hidden in simple mode) -->
-        <div v-if="!authStore.isSimpleMode" class="sidebar-section">
-          <div class="sidebar-section-title" :class="{ 'sidebar-section-title-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
-            <span class="sidebar-section-title-text" :class="{ 'sidebar-section-title-text-collapsed': sidebarCollapsed }">
-              {{ t('nav.myAccount') }}
-            </span>
-          </div>
-
-          <router-link
-            v-for="item in personalNavItems"
-            :key="item.path"
-            :to="item.path"
-            class="sidebar-link mb-1"
-            :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
-            :title="sidebarCollapsed ? item.label : undefined"
-            :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
-            @click="handleMenuItemClick(item.path)"
-          >
-            <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-            <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-            <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
-          </router-link>
-        </div>
-      </template>
-
-      <!-- Regular User View -->
-      <template v-else-if="!appStore.backendModeEnabled">
-        <div class="sidebar-section">
-          <router-link
-            v-for="item in userNavItems"
-            :key="item.path"
-            :to="item.path"
-            class="sidebar-link mb-1"
-            :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
-            :title="sidebarCollapsed ? item.label : undefined"
-            :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
-            @click="handleMenuItemClick(item.path)"
-          >
-            <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-            <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-            <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
-          </router-link>
-        </div>
-      </template>
+      </section>
     </nav>
 
-    <!-- Bottom Section -->
-    <div class="sidebar-footer mt-auto border-t border-gray-100 p-3 dark:border-dark-800">
-      <!-- Theme Toggle -->
+    <div class="sidebar-footer dock-footer">
       <button
+        type="button"
+        class="dock-tool dock-theme-button"
+        :aria-label="isDark ? t('nav.lightMode') : t('nav.darkMode')"
+        :title="isDark ? t('nav.lightMode') : t('nav.darkMode')"
         @click="toggleTheme"
-        class="sidebar-link mb-2 w-full"
-        :class="{ 'sidebar-link-collapsed': sidebarCollapsed }"
-        :title="sidebarCollapsed ? (isDark ? t('nav.lightMode') : t('nav.darkMode')) : undefined"
       >
-        <SunIcon v-if="isDark" class="h-5 w-5 flex-shrink-0" />
-        <MoonIcon v-else class="h-5 w-5 flex-shrink-0" />
-        <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{
-          isDark ? t('nav.lightMode') : t('nav.darkMode')
-        }}</span>
+        <SunIcon v-if="isDark" class="dock-tool-icon" />
+        <MoonIcon v-else class="dock-tool-icon" />
+        <span v-if="!isDockCollapsed">{{ isDark ? t('nav.lightMode') : t('nav.darkMode') }}</span>
       </button>
-
-      <!-- Collapse Button -->
       <button
-        @click="toggleSidebar"
-        class="sidebar-link w-full"
-        :class="{ 'sidebar-link-collapsed': sidebarCollapsed }"
+        type="button"
+        class="dock-tool dock-collapse-button"
+        :aria-label="sidebarCollapsed ? t('nav.expand') : t('nav.collapse')"
         :title="sidebarCollapsed ? t('nav.expand') : t('nav.collapse')"
+        @click="toggleSidebar"
       >
-        <ChevronDoubleLeftIcon v-if="!sidebarCollapsed" class="h-5 w-5 flex-shrink-0" />
-        <ChevronDoubleRightIcon v-else class="h-5 w-5 flex-shrink-0" />
-        <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ t('nav.collapse') }}</span>
+        <ChevronDoubleLeftIcon v-if="!sidebarCollapsed" class="dock-tool-icon" />
+        <ChevronDoubleRightIcon v-else class="dock-tool-icon" />
       </button>
     </div>
   </aside>
 
-  <!-- Mobile Overlay -->
-  <transition name="fade">
-    <div
-      v-if="mobileOpen"
-      class="fixed inset-0 z-30 bg-black/30 backdrop-blur-sm lg:hidden"
-      @click="closeMobile"
-    ></div>
+  <transition name="dock-overlay-fade">
+    <div v-if="mobileOpen" class="dock-overlay" @click="closeMobile"></div>
   </transition>
 </template>
 
@@ -202,6 +177,7 @@ import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 import { BRAND_LOGO, resolveBrandName } from '@/utils/brandIdentity'
+import '@/styles/sidebar-dock.css'
 
 interface NavItem {
   path: string
@@ -239,7 +215,7 @@ function applyFeatureFlags(items: NavItem[]): NavItem[] {
   return out
 }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -251,11 +227,40 @@ const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
 
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const mobileOpen = computed(() => appStore.mobileOpen)
+const isMobileViewport = ref(window.innerWidth < 1024)
+// The mobile drawer always shows complete labels; the desktop preference is retained.
+const isDockCollapsed = computed(() => sidebarCollapsed.value && !isMobileViewport.value)
+const isMobileDrawerOpen = computed(() => mobileOpen.value && isMobileViewport.value)
 const isAdmin = computed(() => authStore.isAdmin)
+const sidebarRef = ref<HTMLElement | null>(null)
 const sidebarNavRef = ref<HTMLElement | null>(null)
+let mobileReturnFocus: HTMLElement | null = null
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
 const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
+
+type NavigationSpace = 'admin' | 'personal'
+interface NavigationSection {
+  id: string
+  label: string
+  items: NavItem[]
+}
+
+const navigationSpace = ref<NavigationSpace>('admin')
+const canSwitchSpaces = computed(() => isAdmin.value && !authStore.isSimpleMode)
+const spaceScrollOffsets: Record<NavigationSpace, number> = { admin: 0, personal: 0 }
+// The existing tour crosses between admin and personal links. Keep every target
+// mounted and visible while its shared driver exists, without changing the tour.
+const tourNavigationExpanded = computed(() => canSwitchSpaces.value && Boolean(onboardingStore.getDriverInstance()))
+const dockText = computed(() => locale.value.startsWith('zh') ? {
+  navigation: '主导航', workspace: '切换工作空间', management: '管理空间', personal: '个人空间',
+  overview: '概览', resources: '用户与资源', operations: '运营与财务', system: '系统',
+  work: '工作空间', account: '我的账户', shortcuts: '快捷入口'
+} : {
+  navigation: 'Main navigation', workspace: 'Switch workspace', management: 'Admin', personal: 'Personal',
+  overview: 'Overview', resources: 'People & resources', operations: 'Operations & billing', system: 'System',
+  work: 'Workspace', account: 'My account', shortcuts: 'Shortcuts'
+})
 
 // Per-group expand/collapse overrides. A group with no entry follows the
 // automatic behavior (expanded while the active route is one of its children);
@@ -848,8 +853,75 @@ const adminNavItems = computed((): NavItem[] => {
   return visible
 })
 
+// Presentation groups consume the already permission/feature-filtered arrays.
+// Unknown and custom entries remain reachable in the final section.
+function groupNavigation(
+  items: NavItem[],
+  definitions: { id: string; label: string; paths: string[] }[],
+  space: NavigationSpace
+): NavigationSection[] {
+  const claimed = new Set<string>()
+  const sections: NavigationSection[] = []
+  for (const definition of definitions) {
+    const grouped = definition.paths.flatMap((path) => items.filter((item) => item.path === path))
+    grouped.forEach((item) => claimed.add(item.path))
+    if (grouped.length) sections.push({ id: `${space}-${definition.id}`, label: definition.label, items: grouped })
+  }
+  const remaining = items.filter((item) => !claimed.has(item.path))
+  if (remaining.length) sections.push({ id: `${space}-shortcuts`, label: dockText.value.shortcuts, items: remaining })
+  return sections
+}
+
+const managementSections = computed(() => groupNavigation(adminNavItems.value, [
+  { id: 'overview', label: dockText.value.overview, paths: ['/admin/dashboard', '/admin/ops', '/admin/usage'] },
+  { id: 'resources', label: dockText.value.resources, paths: ['/admin/users', '/admin/groups', '/admin/accounts', '/admin/channels', '/keys'] },
+  { id: 'operations', label: dockText.value.operations, paths: ['/admin/subscriptions', '/admin/orders', '/admin/redeem', '/admin/promo-codes', '/admin/affiliates'] },
+  { id: 'system', label: dockText.value.system, paths: ['/admin/announcements', '/admin/proxies', '/admin/plugins', '/admin/security-audit', '/admin/audit-logs', '/admin/settings'] }
+], 'admin'))
+
+const personalSections = computed(() => groupNavigation(isAdmin.value ? personalNavItems.value : userNavItems.value, [
+  { id: 'overview', label: dockText.value.overview, paths: ['/dashboard'] },
+  { id: 'work', label: dockText.value.work, paths: ['/keys', '/batch-image', '/usage', '/available-channels', '/monitor'] },
+  { id: 'account', label: dockText.value.account, paths: ['/purchase', '/subscriptions', '/orders', '/redeem', '/affiliate', '/profile'] }
+], 'personal'))
+
+const visibleNavSections = computed((): NavigationSection[] => {
+  if (isAdmin.value) {
+    if (authStore.isSimpleMode) return managementSections.value
+    if (tourNavigationExpanded.value) return [...managementSections.value, ...personalSections.value]
+    return navigationSpace.value === 'admin' ? managementSections.value : personalSections.value
+  }
+  return appStore.backendModeEnabled ? [] : personalSections.value
+})
+
+function selectNavigationSpace(space: NavigationSpace) {
+  if (navigationSpace.value === space) return
+  if (sidebarNavRef.value) spaceScrollOffsets[navigationSpace.value] = sidebarNavRef.value.scrollTop
+  navigationSpace.value = space
+  void nextTick(() => {
+    if (sidebarNavRef.value) sidebarNavRef.value.scrollTop = spaceScrollOffsets[space]
+  })
+}
+
+const routeNavigationSpace = computed<NavigationSpace>(() => {
+  if (!canSwitchSpaces.value) return 'admin'
+  const isManagementRoute = adminNavItems.value.some((item) => isActive(item.path))
+  const isPersonalRoute = personalNavItems.value.some((item) => isActive(item.path))
+  return isManagementRoute || !isPersonalRoute ? 'admin' : 'personal'
+})
+
+// Async settings can introduce a custom personal route after the first render.
+// Watch its resolved space as well as the path, without watching manual selection.
+watch([() => route.path, routeNavigationSpace], () => {
+  selectNavigationSpace(routeNavigationSpace.value)
+}, { immediate: true })
+
 function toggleSidebar() {
   appStore.toggleSidebar()
+}
+
+function syncDockViewport() {
+  isMobileViewport.value = window.innerWidth < 1024
 }
 
 function toggleTheme() {
@@ -861,6 +933,27 @@ function toggleTheme() {
 function closeMobile() {
   appStore.setMobileOpen(false)
 }
+
+function handleDrawerKeydown(event: KeyboardEvent) {
+  if (!isMobileDrawerOpen.value || event.defaultPrevented || onboardingStore.getDriverInstance()) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeMobile()
+  }
+}
+
+watch(isMobileDrawerOpen, async (open) => {
+  if (open) {
+    const focused = document.activeElement
+    mobileReturnFocus = focused instanceof HTMLElement && !sidebarRef.value?.contains(focused) ? focused : null
+    await nextTick()
+    if (isMobileDrawerOpen.value) sidebarRef.value?.querySelector<HTMLButtonElement>('.dock-mobile-close')?.focus({ preventScroll: true })
+    return
+  }
+  await nextTick()
+  if (!isMobileDrawerOpen.value && mobileReturnFocus?.isConnected) mobileReturnFocus.focus({ preventScroll: true })
+  mobileReturnFocus = null
+}, { immediate: true })
 
 function handleMenuItemClick(itemPath: string) {
   if (mobileOpen.value) {
@@ -903,13 +996,17 @@ function toggleGroup(item: NavItem) {
 
 /**
  * Click handler for collapsible parent items.
- * - When sidebar is collapsed: do nothing (children are not visible).
+ * - When the desktop dock is collapsed: expand it and reveal the children.
  * - When `expandOnly` is true: only toggle expand state.
  * - Otherwise (default, e.g. /admin/orders): navigate to the parent path
  *   (router-link semantics) and ensure the group is expanded.
  */
 function handleGroupClick(item: NavItem) {
-  if (sidebarCollapsed.value) return
+  if (isDockCollapsed.value) {
+    appStore.setSidebarCollapsed(false)
+    groupExpandOverrides.value.set(item.path, true)
+    return
+  }
   if (item.expandOnly) {
     toggleGroup(item)
     return
@@ -943,6 +1040,8 @@ watch(
 )
 
 onMounted(() => {
+  window.addEventListener('resize', syncDockViewport)
+  window.addEventListener('keydown', handleDrawerKeydown)
   void refreshBatchImageAccess()
   if (isAdmin.value) {
     adminSettingsStore.fetch()
@@ -958,6 +1057,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncDockViewport)
+  window.removeEventListener('keydown', handleDrawerKeydown)
   if (sidebarNavRef.value) {
     appStore.sidebarScrollTop = sidebarNavRef.value.scrollTop
   }
