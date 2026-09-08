@@ -6,11 +6,11 @@
     <div v-else v-html="homeContent"></div>
   </div>
 
-  <div v-else :data-testid="compactHomeEnabled ? 'compact-home' : undefined" class="brand-home" :class="{ 'compact-home': compactHomeEnabled }">
+  <div v-else :data-testid="compactHomeEnabled ? 'compact-home' : undefined" class="brand-home" :class="{ 'compact-home': compactHomeEnabled, 'motion-paused': motionPaused }">
     <header class="home-header">
       <nav class="home-nav" :aria-label="copy.navigation">
         <div class="home-brand">
-          <img :src="siteLogo || BRAND_LOGO" alt="" class="home-brand-mark" />
+          <span class="home-brand-symbol" aria-hidden="true"><img :src="siteLogo || BRAND_LOGO" alt="" class="home-brand-mark" /></span>
           <span>{{ siteName }}</span>
         </div>
         <div class="home-nav-actions">
@@ -24,6 +24,9 @@
           </router-link>
           <button type="button" class="home-icon-link" :title="isDark ? t('home.switchToLight') : t('home.switchToDark')" :aria-label="isDark ? t('home.switchToLight') : t('home.switchToDark')" @click="toggleTheme">
             <Icon v-if="isDark" name="sun" size="md" /><Icon v-else name="moon" size="md" />
+          </button>
+          <button v-if="!compactHomeEnabled" type="button" class="home-icon-link home-motion-toggle" :title="motionPaused ? copy.resumeMotion : copy.pauseMotion" :aria-label="motionPaused ? copy.resumeMotion : copy.pauseMotion" :aria-pressed="motionPaused" @click="motionPaused = !motionPaused">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path v-if="motionPaused" d="m9 5 11 7-11 7Z" /><path v-else d="M8 5v14M16 5v14" /></svg>
           </button>
           <router-link :to="isAuthenticated ? dashboardPath : '/login'" class="home-nav-console">
             <span v-if="isAuthenticated && userInitial" class="home-user-initial">{{ userInitial }}</span>
@@ -48,9 +51,11 @@
             <svg v-if="!siteLogo" viewBox="0 0 380 264" fill="none">
               <circle class="emblem-orbit" cx="190" cy="132" r="118" />
               <path class="emblem-orbit" d="M310 55a143 143 0 0 1 0 154M70 209a143 143 0 0 1 0-154" />
+              <g class="emblem-satellite"><path class="emblem-orbit-trail" d="M190 14a118 118 0 0 1 59 15.8" /><circle cx="249" cy="29.8" r="3.5" /></g>
               <path class="emblem-secondary" d="M240 71h-71a40 40 0 0 0 0 80h37a19 19 0 0 1 0 38h-69" />
               <path class="emblem-primary" d="M137 189h69a40 40 0 0 0 0-80h-37a19 19 0 0 1 0-38h71" />
               <circle class="emblem-node" cx="246" cy="71" r="5.5" />
+              <circle class="emblem-node-ring" cx="246" cy="71" r="10" />
               <path class="emblem-tick" d="M190 7v8M190 249v8M65 132h8M307 132h8" />
             </svg>
             <img v-else :src="siteLogo" alt="" class="hero-custom-logo" />
@@ -88,12 +93,15 @@
         <!-- Conceptual connection diagram, not simulated traffic or service metrics. -->
         <div class="connection-visual terminal-container" role="img" :aria-label="copy.diagramDescription">
           <svg class="connection-lines" viewBox="0 0 560 248" fill="none" aria-hidden="true">
-            <path class="connection-track" d="M102 124H246M314 124H363Q384 124 384 104V40Q384 22 404 22H441M384 80H441M384 168H441M363 124Q384 124 384 144V208Q384 226 404 226H441" />
-            <path class="connection-active" d="M102 124H246M314 124H363Q384 124 384 104V40Q384 22 404 22H441" /><circle cx="175" cy="124" r="3" class="connection-dot" />
+            <path v-for="route in connectionRoutes" :key="`track-${route.id}`" class="connection-track" :d="route.path" />
+            <g v-for="(route, index) in connectionRoutes" :key="route.id" :style="{ '--route-delay': `${index * 2.4}s` }">
+              <path class="connection-active" :data-route="route.id" :d="route.path" pathLength="100" />
+              <circle class="connection-endpoint" cx="445" :cy="route.y" r="3" />
+            </g>
           </svg>
           <div class="connection-origin"><span aria-hidden="true">&lt;/&gt;</span><small>{{ copy.yourApplication }}</small></div>
           <div class="connection-hub"><img :src="siteLogo || BRAND_LOGO" alt="" /></div>
-          <div class="connection-destinations" aria-hidden="true"><span>Claude</span><span>GPT</span><span>Gemini</span><span>Antigravity</span></div>
+          <div class="connection-destinations" aria-hidden="true"><span v-for="(route, index) in connectionRoutes" :key="route.id" :style="{ '--route-delay': `${index * 2.4}s`, top: `${route.y / 248 * 100}%` }">{{ route.label }}</span></div>
           <span class="connection-caption">{{ copy.oneConnection }}</span>
         </div>
       </section>
@@ -154,18 +162,28 @@ const copy = computed(() => (locale?.value || 'zh').startsWith('zh') ? {
   navigation: '主导航', sections: '页面章节', home: '首页', welcome: '欢迎使用',
   description: '连接所需的模型，专注想做的事。', explore: '向下探索', connectionLabel: '统一接入',
   yourApplication: '你的应用', oneConnection: '一个 API 入口',
-  diagramDescription: '你的应用通过统一 API 入口连接 Claude、GPT、Gemini 和 Antigravity。',
+  diagramDescription: '你的应用通过统一 API 入口，依次连接 Claude、GPT、Gemini 和 Grok。',
+  pauseMotion: '暂停页面动效', resumeMotion: '播放页面动效',
   workspaceLabel: '日常工作台', workspaceTitle: '连接有序，管理自如。',
   workspaceDescription: '从模型接入到用量查看，让日常操作清晰、直接。', closingTitle: '开始你的下一次连接。',
 } : {
   navigation: 'Main navigation', sections: 'Page sections', home: 'Home', welcome: 'WELCOME TO',
   description: 'Connect to the models you need. Focus on what you create.', explore: 'Explore', connectionLabel: 'ONE CONNECTION',
   yourApplication: 'Your application', oneConnection: 'One API gateway',
-  diagramDescription: 'Your application connects to Claude, GPT, Gemini and Antigravity through one API gateway.',
+  diagramDescription: 'Your application connects to Claude, GPT, Gemini and Grok in sequence through one API gateway.',
+  pauseMotion: 'Pause page animations', resumeMotion: 'Play page animations',
   workspaceLabel: 'YOUR WORKSPACE', workspaceTitle: 'Connected. Under control.',
   workspaceDescription: 'Connect models, manage access, and understand your usage in one place.', closingTitle: 'Your next connection starts here.',
 })
-const providers = computed(() => [t('home.providers.claude'), 'GPT', t('home.providers.gemini'), t('home.providers.antigravity')])
+// Four 2.4-second phases share one CSS timeline, including their labels.
+const connectionRoutes = [
+  { id: 'claude', label: 'Claude', y: 22, path: 'M102 124H358Q382 124 382 100V46Q382 22 406 22H445' },
+  { id: 'gpt', label: 'GPT', y: 90, path: 'M102 124H358Q382 124 382 100Q382 90 406 90H445' },
+  { id: 'gemini', label: 'Gemini', y: 158, path: 'M102 124H358Q382 124 382 148Q382 158 406 158H445' },
+  { id: 'grok', label: 'Grok', y: 226, path: 'M102 124H358Q382 124 382 148V202Q382 226 406 226H445' },
+]
+const providers = connectionRoutes.map(route => route.label)
+const motionPaused = ref(false)
 const isDark = ref(document.documentElement.classList.contains('dark'))
 const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
 const isAuthenticated = computed(() => authStore.isAuthenticated)
@@ -204,8 +222,11 @@ onMounted(() => {
 .home-header { position: relative; z-index: 20; border-bottom: 1px solid var(--home-line); }
 .home-nav { max-width: 1400px; min-height: 68px; margin: 0 auto; padding: 10px 40px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .home-brand { min-width: 0; display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600; letter-spacing: -.5px; }
-.home-brand > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-brand > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-brand-symbol { position: relative; display: flex; flex: none; border-radius: 9px; isolation: isolate; animation: brand-breathe 4.8s ease-in-out infinite; }
+.home-brand-symbol::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(110deg, transparent 20%, rgb(255 255 255 / 25%) 48%, transparent 75%); background-size: 300% 100%; pointer-events: none; animation: brand-sheen 4.8s ease-in-out infinite; }
 .home-brand-mark { width: 30px; height: 30px; object-fit: contain; flex: none; border-radius: 9px; }
+.home-motion-toggle svg { width: 16px; height: 16px; }
 .home-nav-actions { display: flex; flex: none; align-items: center; gap: 7px; }
 .home-nav-link, .home-icon-link { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 10px; gap: 6px; border-radius: 10px; font-size: 12px; font-weight: 500; color: var(--home-muted); transition: color 160ms, background 160ms; }
 .home-icon-link { width: 38px; padding: 0; }
@@ -218,11 +239,14 @@ onMounted(() => {
 .hero-intro { width: min(900px, 100%); margin: 0 auto; padding: 0 24px; animation: home-enter 600ms both; }
 .hero-emblem { width: clamp(235px, 28vw, 340px); height: clamp(165px, 19.5vw, 236px); margin: 0 auto 21px; display: flex; align-items: center; justify-content: center; }
 .hero-emblem svg { width: 100%; height: 100%; overflow: visible; }
-.hero-custom-logo { width: 130px; height: 130px; object-fit: contain; }
+.hero-custom-logo { width: 130px; height: 130px; object-fit: contain; animation: brand-breathe 4.8s ease-in-out infinite; }
 .emblem-orbit, .emblem-tick { stroke: var(--home-line); stroke-width: 1; }
 .emblem-primary { stroke: var(--home-ink); stroke-width: 7; stroke-linecap: round; stroke-dasharray: 470; animation: emblem-draw 1000ms 100ms both; }
 .emblem-secondary { stroke: var(--home-ink); stroke-opacity: .28; stroke-width: 2; stroke-linecap: round; }
 .emblem-node { fill: var(--home-accent); }
+.emblem-satellite { fill: var(--home-accent); transform-origin: 190px 132px; animation: emblem-orbit 16s linear infinite; }
+.emblem-orbit-trail { stroke: var(--home-accent); stroke-width: 1.5; stroke-linecap: round; opacity: .38; }
+.emblem-node-ring { fill: none; stroke: var(--home-accent); stroke-width: 1; transform-box: fill-box; transform-origin: center; animation: emblem-signal 4.8s ease-out infinite; }
 .hero-welcome { margin: 0 0 11px; color: var(--home-accent); font-size: 11px; font-weight: 500; letter-spacing: .13em; }
 .home-hero h1 { margin: 0; font-family: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, 'PingFang SC', serif; font-size: clamp(57px, 6.4vw, 84px); line-height: 1.07; font-weight: 500; letter-spacing: -.045em; overflow-wrap: anywhere; }
 .hero-subtitle { margin: 20px auto 0; max-width: 650px; font-size: clamp(18px, 2.1vw, 22px); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -255,14 +279,15 @@ onMounted(() => {
 .connection-visual { position: relative; width: 100%; aspect-ratio: 560 / 248; }
 .connection-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
 .connection-track { stroke: var(--home-line); stroke-width: 1.5; }
-.connection-active { stroke: var(--home-accent); stroke-width: 1.5; }
-.connection-dot { fill: var(--home-accent); }
+.connection-active { stroke: var(--home-accent); stroke-width: 2; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; opacity: 0; animation: connection-flow 9.6s linear infinite; animation-delay: var(--route-delay); }
+.connection-endpoint { fill: var(--home-accent); opacity: 0; animation: connection-arrival 9.6s linear infinite; animation-delay: var(--route-delay); }
 .connection-origin { position: absolute; left: 8%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; gap: 10px; align-items: center; color: var(--home-muted); white-space: nowrap; }
 .connection-origin > span { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--home-ink); font-size: 27px; letter-spacing: -3px; line-height: 1; }
 .connection-origin small { font-size: 10px; }
 .connection-hub { position: absolute; left: 50%; top: 50%; display: flex; width: 68px; height: 68px; padding: 16px; align-items: center; justify-content: center; transform: translate(-50%, -50%); background: var(--home-soft); border: 1px solid var(--home-line); border-radius: 20px; }
 .connection-hub img { width: 100%; height: 100%; object-fit: contain; border-radius: 9px; }
-.connection-destinations { position: absolute; top: 4%; bottom: 4%; left: 81%; display: flex; flex-direction: column; justify-content: space-between; font-size: 15px; font-weight: 500; letter-spacing: -.3px; line-height: 22px; }
+.connection-destinations { position: absolute; inset: 0 0 0 82%; font-size: 15px; font-weight: 500; letter-spacing: -.3px; line-height: 22px; }
+.connection-destinations > span { position: absolute; transform: translateY(-50%); color: var(--home-muted); animation: connection-label 9.6s linear infinite; animation-delay: var(--route-delay); }
 .connection-caption { position: absolute; top: calc(50% + 48px); left: 50%; transform: translateX(-50%); font-size: 10px; white-space: nowrap; color: var(--home-muted); }
 .home-workspace { background: var(--home-soft); border-top: 1px solid var(--home-line); border-bottom: 1px solid var(--home-line); padding: 78px 0; scroll-margin-top: 36px; }
 .workspace-inner { display: grid; grid-template-columns: .85fr 1.15fr; gap: 70px; }
@@ -292,6 +317,14 @@ onMounted(() => {
 .brand-home a:focus-visible, .brand-home button:focus-visible { outline: 3px solid var(--home-accent); outline-offset: 4px; }
 @keyframes home-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes emblem-draw { from { stroke-dashoffset: 470; } to { stroke-dashoffset: 0; } }
+@keyframes brand-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes brand-sheen { 0%, 12% { background-position: 150% 0; opacity: 0; } 28% { opacity: 1; } 48%, 100% { background-position: -50% 0; opacity: 0; } }
+@keyframes emblem-orbit { to { transform: rotate(360deg); } }
+@keyframes emblem-signal { 0%, 70%, 100% { opacity: 0; transform: scale(.65); } 15% { opacity: .65; } 55% { opacity: 0; transform: scale(1.65); } }
+@keyframes connection-flow { 0% { stroke-dashoffset: 100; opacity: 1; } 12.5%, 21% { stroke-dashoffset: 0; opacity: 1; } 24.9%, 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes connection-arrival { 0%, 10%, 25%, 100% { opacity: 0; } 13%, 21% { opacity: 1; } }
+@keyframes connection-label { 0%, 10%, 25%, 100% { color: var(--home-muted); } 13%, 21% { color: var(--home-accent); } }
+.motion-paused *, .motion-paused *::before, .motion-paused *::after { animation-play-state: paused !important; }
 @media (max-width: 1000px) {
   .home-nav { padding-left: 24px; padding-right: 24px; gap: 12px; }
   .home-brand { max-width: 220px; }
@@ -352,5 +385,9 @@ onMounted(() => {
   .home-hero { min-height: 650px; }
   .hero-emblem { width: 265px; height: 184px; margin-bottom: 16px; }
 }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .home-motion-toggle, .home-brand-symbol::after, .emblem-node-ring { display: none; }
+  .connection-destinations > span { color: var(--home-ink); }
+}
 </style>

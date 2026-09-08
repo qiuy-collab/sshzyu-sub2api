@@ -127,6 +127,32 @@ afterEach(() => {
 })
 
 describe('AppSidebar Dock navigation', () => {
+  it.each([false, true])('keeps the canvas and normal shortcuts while retiring the legacy image entry (admin=%s)', async (isAdmin) => {
+    authStore.isAdmin = isAdmin
+    const legacy = customMenu('4ac01eacf764b20a', 'user', 2)
+    const guide = customMenu('55c8913fba674edc', 'user', 1)
+    const recharge = customMenu('ed47558cbb4346a5', 'user', 0)
+    const unrelated = customMenu('another-image-tool', 'user', 3)
+    appStore.cachedPublicSettings.custom_menu_items = [legacy, guide, recharge, unrelated]
+    const original = JSON.stringify(appStore.cachedPublicSettings.custom_menu_items)
+    const wrapper = await renderSidebar(isAdmin ? '/admin/dashboard' : '/dashboard')
+    if (isAdmin) await wrapper.get('button[aria-label="个人空间"]').trigger('click')
+    const paths = navigationPaths(wrapper)
+    expect(paths).not.toContain(`/custom/${legacy.id}`)
+    for (const path of ['/image-studio', '/batch-image', `/custom/${guide.id}`, `/custom/${recharge.id}`, `/custom/${unrelated.id}`]) {
+      expect(paths).toContain(path)
+    }
+    for (const item of [guide, recharge]) {
+      const link = wrapper.get(`a[href="/custom/${item.id}"]`)
+      expect(link.text()).toBe(item.label)
+      expect(link.find('.dock-custom-icon').exists()).toBe(false)
+      expect(link.get('svg').attributes('stroke')).toBe('currentColor')
+      expect(link.get('svg').attributes('stroke-width')).toBe('1.5')
+    }
+    expect(wrapper.get(`a[href="/custom/${unrelated.id}"] .dock-custom-icon path`).attributes('fill')).toBe('#d22')
+    expect(JSON.stringify(appStore.cachedPublicSettings.custom_menu_items)).toBe(original)
+  })
+
   it('keeps every admin route reachable across task groups, including custom entries', async () => {
     adminStore.customMenuItems = [customMenu('admin-help', 'admin'), customMenu('wrong-role', 'user')]
     const wrapper = await renderSidebar()

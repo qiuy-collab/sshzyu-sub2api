@@ -177,6 +177,7 @@ import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 import { BRAND_LOGO, resolveBrandName } from '@/utils/brandIdentity'
+import type { CustomMenuItem } from '@/types'
 import '@/styles/sidebar-dock.css'
 
 interface NavItem {
@@ -443,6 +444,27 @@ const CreditCardIcon = {
         })
       ]
     )
+}
+
+const GuideIcon = {
+  render: () => h('svg', {
+    fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5',
+    'stroke-linecap': 'round', 'stroke-linejoin': 'round'
+  }, [h('path', { d: 'M12 5.5C9 3.5 5.5 3.5 3 4.5v15c2.5-1 6-1 9 1 3-2 6.5-2 9-1v-15c-2.5-1-6-1-9 1Zm0 0v15M6 8h3M6 11h3M15 8h3M15 11h3' })])
+}
+
+// Presentation overrides for SSHZYU's existing shortcuts. Keep their stored
+// settings and routes intact; unrelated custom menus retain their own artwork.
+const brandShortcuts = {
+  legacyImage: '4ac01eacf764b20a',
+  guide: '55c8913fba674edc',
+  recharge: 'ed47558cbb4346a5'
+} as const
+
+function customMenuNavigation(item: CustomMenuItem): NavItem {
+  const icon = item.id === brandShortcuts.guide ? GuideIcon
+    : item.id === brandShortcuts.recharge ? CreditCardIcon : null
+  return { path: `/custom/${item.id}`, label: item.label, icon, iconSvg: icon ? undefined : item.icon_svg }
 }
 
 const RechargeSubscriptionIcon = {
@@ -747,12 +769,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
     { path: '/affiliate', label: t('nav.affiliate'), icon: UsersIcon, hideInSimpleMode: true, featureFlag: flagAffiliate },
     { path: '/profile', label: t('nav.profile'), icon: UserIcon },
-    ...customMenuItemsForUser.value.map((item): NavItem => ({
-      path: `/custom/${item.id}`,
-      label: item.label,
-      icon: null,
-      iconSvg: item.icon_svg,
-    })),
+    ...customMenuItemsForUser.value.map(customMenuNavigation),
   )
   return items
 }
@@ -775,13 +792,13 @@ const personalNavItems = computed((): NavItem[] => finalizeNav(buildSelfNavItems
 const customMenuItemsForUser = computed(() => {
   const items = appStore.cachedPublicSettings?.custom_menu_items ?? []
   return items
-    .filter((item) => item.visibility === 'user')
+    .filter((item) => item.visibility === 'user' && item.id !== brandShortcuts.legacyImage)
     .sort((a, b) => a.sort_order - b.sort_order)
 })
 
 const customMenuItemsForAdmin = computed(() => {
   return adminSettingsStore.customMenuItems
-    .filter((item) => item.visibility === 'admin')
+    .filter((item) => item.visibility === 'admin' && item.id !== brandShortcuts.legacyImage)
     .sort((a, b) => a.sort_order - b.sort_order)
 })
 
@@ -859,14 +876,14 @@ const adminNavItems = computed((): NavItem[] => {
     filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
     filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
     for (const cm of customMenuItemsForAdmin.value) {
-      filtered.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })
+      filtered.push(customMenuNavigation(cm))
     }
     return filtered
   }
 
   visible.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
   for (const cm of customMenuItemsForAdmin.value) {
-    visible.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })
+    visible.push(customMenuNavigation(cm))
   }
   return visible
 })

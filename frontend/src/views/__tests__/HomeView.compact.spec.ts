@@ -115,6 +115,21 @@ describe('HomeView compact mode', () => {
     expect(compactDestination(mountHome({ compact_home_enabled: true }))).toBe('/login')
   })
 
+  it('lets visitors pause and resume page motion without changing their destination', async () => {
+    const wrapper = mountHome()
+    const destinations = () => wrapper.findAllComponents(RouterLinkStub).map(link => link.props('to'))
+    const originalDestinations = destinations()
+    const button = wrapper.get('button[aria-label="暂停页面动效"]')
+    await button.trigger('click')
+    expect(button.attributes('aria-label')).toBe('播放页面动效')
+    expect(button.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('.brand-home').classes()).toContain('motion-paused')
+    await button.trigger('click')
+    expect(button.attributes('aria-pressed')).toBe('false')
+    expect(wrapper.get('.brand-home').classes()).not.toContain('motion-paused')
+    expect(destinations()).toEqual(originalDestinations)
+  })
+
   it('links authenticated users to their dashboard', () => {
     authStore.isAuthenticated = true
 
