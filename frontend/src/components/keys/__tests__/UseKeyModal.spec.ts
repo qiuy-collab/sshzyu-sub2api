@@ -40,6 +40,25 @@ describe('UseKeyModal', () => {
     saveAsMock.mockClear()
   })
 
+  it('opens the canvas with only a key ID and closes the client configuration dialog', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'sk-not-in-link', baseUrl: 'https://example.com', platform: 'openai', imageStudioKeyId: 42 },
+      global: { stubs: {
+        BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+        Icon: { template: '<span />' },
+        RouterLink: { props: ['to'], template: '<a :href="to" @click.prevent><slot /></a>' },
+      } },
+    })
+    const link = wrapper.get('[data-testid="image-studio-key-link"]')
+    expect(link.attributes('href')).toBe('/image-studio?keyId=42')
+    expect(link.attributes('href')).not.toContain('sk-not-in-link')
+    await link.trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    await wrapper.setProps({ imageStudioKeyId: undefined })
+    expect(wrapper.find('[data-testid="image-studio-key-link"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('omits the attribution override from every standard Claude Code setup form', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {

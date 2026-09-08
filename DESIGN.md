@@ -31,6 +31,16 @@ Frontend presentation only. No API contracts, routes/guards, store business beha
 ## Release constraints
 Start from production commit 2bc8cf91fd5d702a1284407e5c8f5114ac333ef3. Build and verify locally. Keep the running backend, PostgreSQL and Redis intact. Publish versioned static assets with a reversible nginx configuration change only after preflight, backup and health checks. Keep old assets available to already-open browser sessions.
 
+## Creative canvas — September 8
+
+Visual thesis: an expansive pearl-grey drawing surface, quiet white image nodes, warm-white editable notes and fine directional connectors; the artwork and prompts carry the composition.
+
+Content plan: a compact document bar, a full working canvas with a small editing palette, and an inspector that opens only when configuring a generation node. The empty state explains the real workflow: text and references connect to a generator, and completed images can feed a later generator.
+
+Interaction thesis: nodes and connectors follow direct dragging without animation lag; zoom stays anchored under the pointer; the inspector enters with a brief restrained slide. All controls remain usable with reduced motion, keyboard focus and a narrow viewport.
+
+This new user-requested feature adds one authenticated frontend route. Explicit generation reuses the existing batch API, models, key eligibility and billing. Connections never submit requests automatically. Canvas documents and images live in per-user browser IndexedDB and can be exported together; API keys are never written into canvas files or the generation ledger. The existing batch-image and standalone image applications remain available.
+
 ## Workspace revision — September 8
 
 The first workspace revision changed styling without sufficiently changing the composition. This revision gives the operational product its own clear structure: an inset Finder-like navigation Dock and one white working surface on a pearl-grey canvas. The header identifies the current task with a readable title; its utilities remain compact.

@@ -170,6 +170,7 @@ const DataTableStub = {
           <slot name="cell-id" :value="row.id" :row="row" />
         </div>
         <slot name="cell-name" :value="row.name" :row="row" />
+        <slot name="cell-actions" :row="row" />
         <div data-test="current-concurrency">
           <slot name="cell-current_concurrency" :value="row.current_concurrency" :row="row" />
         </div>
@@ -234,6 +235,7 @@ const mountView = async () => {
         GroupBadge: true,
         GroupOptionItem: true,
         Teleport: true,
+        RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
       },
     },
   })
@@ -283,6 +285,31 @@ describe('user KeysView column settings', () => {
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
     isCurrentStep.mockReturnValue(false)
+  })
+
+  it('offers an eligible image key a credential-free canvas link and preserves the use-key modal', async () => {
+    const imageKey = { ...createApiKey(), id: 42, group: {
+      platform: 'openai', allow_image_generation: true, allow_batch_image_generation: true,
+    } } as ApiKey
+    listKeys.mockResolvedValue({ items: [imageKey, { ...imageKey, id: 43, status: 'inactive' }], total: 2, pages: 1 })
+    const wrapper = await mountView()
+    const links = wrapper.findAll('[data-testid="image-studio-key-link"]')
+    expect(links).toHaveLength(1)
+    expect(links[0].attributes('href')).toBe('/image-studio?keyId=42')
+    expect(links[0].attributes('href')).not.toContain(imageKey.key)
+    await getButtonByText(wrapper, 'keys.useKey').trigger('click')
+    const modal = wrapper.findComponent({ name: 'UseKeyModal' })
+    expect(modal.props('apiKey')).toBe(imageKey.key)
+    expect(modal.props('imageStudioKeyId')).toBe(42)
+    expect(modal.props('show')).toBe(true)
+    expect(getButtonByText(wrapper, 'keys.importToCcSwitch').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('does not offer chat keys a canvas handoff', async () => {
+    const wrapper = await mountView()
+    expect(wrapper.find('[data-testid="image-studio-key-link"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('uses the default API key columns with low-frequency columns hidden', async () => {

@@ -104,14 +104,14 @@
 .dock-sidebar .dock-space-button {
   display: flex;
   min-width: 0;
-  min-height: 34px;
+  min-height: 38px;
   align-items: center;
   justify-content: center;
   gap: 6px;
   padding: 6px 3px;
   border-radius: 9px;
   color: var(--dock-muted);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 550;
   line-height: 1.3;
   white-space: nowrap;
@@ -119,8 +119,8 @@
 }
 
 .dock-sidebar .dock-space-button svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 
@@ -188,7 +188,7 @@
   margin: 0 0 6px;
   padding: 0 12px;
   color: var(--dock-muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.035em;
   line-height: 1.5;
@@ -204,16 +204,16 @@
 .dock-sidebar .dock-nav-item {
   display: flex;
   width: 100%;
-  min-height: 38px;
+  min-height: 44px;
   align-items: center;
   gap: 10px;
   margin: 0;
-  padding: 9px 12px;
+  padding: 10px 12px;
   border-radius: 10px;
   color: var(--dock-ink);
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 450;
-  line-height: 20px;
+  line-height: 24px;
   text-align: left;
   transition: color 140ms ease, background-color 140ms ease;
 }
@@ -231,8 +231,8 @@
 }
 
 .dock-sidebar .dock-nav-icon {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
   color: var(--dock-muted);
   stroke-width: 1.5;
@@ -240,8 +240,8 @@
 
 .dock-sidebar .dock-custom-icon {
   display: flex;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
@@ -260,8 +260,8 @@
 }
 
 .dock-sidebar .dock-chevron {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   color: var(--dock-muted);
   transition: transform 150ms ease;
@@ -281,16 +281,16 @@
 }
 
 .dock-sidebar .dock-nav-child {
-  min-height: 34px;
+  min-height: 40px;
   gap: 8px;
-  padding: 7px 9px;
-  font-size: 11px;
-  line-height: 20px;
+  padding: 8px 9px;
+  font-size: 14px;
+  line-height: 24px;
 }
 
 .dock-sidebar .dock-nav-child .dock-nav-icon {
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
 }
 
 .dock-sidebar .dock-footer {
@@ -305,13 +305,13 @@
 
 .dock-sidebar .dock-tool {
   display: flex;
-  min-height: 36px;
+  min-height: 40px;
   align-items: center;
   justify-content: center;
   gap: 8px;
   border-radius: 10px;
   color: var(--dock-muted);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.4;
   transition: color 140ms ease, background-color 140ms ease;
 }
@@ -328,13 +328,13 @@
 }
 
 .dock-sidebar .dock-collapse-button {
-  width: 36px;
+  width: 40px;
   flex-shrink: 0;
 }
 
 .dock-sidebar .dock-tool-icon {
-  width: 17px;
-  height: 17px;
+  width: 19px;
+  height: 19px;
   flex-shrink: 0;
 }
 
@@ -351,7 +351,7 @@
 }
 
 .dock-sidebar.dock-is-collapsed .dock-space-button {
-  min-height: 34px;
+  min-height: 38px;
 }
 
 .dock-sidebar.dock-is-collapsed .dock-nav {
@@ -359,7 +359,7 @@
 }
 
 .dock-sidebar.dock-is-collapsed .dock-nav-item {
-  min-height: 40px;
+  min-height: 44px;
   justify-content: center;
   padding: 10px;
 }
@@ -381,7 +381,7 @@
 
 .dock-sidebar.dock-is-collapsed .dock-tool {
   width: 100%;
-  min-height: 36px;
+  min-height: 40px;
   justify-content: center;
 }
 
@@ -441,15 +441,14 @@
   }
 
   .dock-sidebar .dock-space-button {
-    min-height: 40px;
-    font-size: 12px;
+    min-height: 44px;
+    font-size: 13px;
   }
 
   .dock-sidebar .dock-nav-item,
   .dock-sidebar .dock-nav-child,
   .dock-sidebar .dock-tool {
     min-height: 44px;
-    font-size: 13px;
   }
 
   .dock-sidebar .dock-collapse-button {

@@ -108,7 +108,7 @@
             </template>
             <router-link
               v-else
-              :to="item.path"
+              :to="item.query ? { path: item.path, query: item.query } : item.path"
               class="sidebar-link dock-nav-item"
               :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': isDockCollapsed }"
               :title="isDockCollapsed ? item.label : undefined"
@@ -181,6 +181,7 @@ import '@/styles/sidebar-dock.css'
 
 interface NavItem {
   path: string
+  query?: Record<string, string>
   label: string
   icon: unknown
   iconSvg?: string
@@ -255,11 +256,11 @@ const tourNavigationExpanded = computed(() => canSwitchSpaces.value && Boolean(o
 const dockText = computed(() => locale.value.startsWith('zh') ? {
   navigation: '主导航', workspace: '切换工作空间', management: '管理空间', personal: '个人空间',
   overview: '概览', resources: '用户与资源', operations: '运营与财务', system: '系统',
-  work: '工作空间', account: '我的账户', shortcuts: '快捷入口'
+  work: '工作空间', account: '我的账户', shortcuts: '快捷入口', imageStudio: '创作画布'
 } : {
   navigation: 'Main navigation', workspace: 'Switch workspace', management: 'Admin', personal: 'Personal',
   overview: 'Overview', resources: 'People & resources', operations: 'Operations & billing', system: 'System',
-  work: 'Workspace', account: 'My account', shortcuts: 'Shortcuts'
+  work: 'Workspace', account: 'My account', shortcuts: 'Shortcuts', imageStudio: 'Creative canvas'
 })
 
 // Per-group expand/collapse overrides. A group with no entry follows the
@@ -323,6 +324,20 @@ const BatchImageIcon = {
         })
       ]
     )
+}
+
+const ModelPlazaIcon = { render: () => h(Icon, { name: 'cube' }) }
+
+const ImageStudioIcon = {
+  render: () => h('svg', {
+    fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5'
+  }, [
+    h('path', {
+      'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+      d: 'M8 3.75H4.75a1 1 0 00-1 1V8m12-4.25h3.25a1 1 0 011 1V8m0 8v3.25a1 1 0 01-1 1H16m-8 0H4.75a1 1 0 01-1-1V16M7.5 16.5l3.25-4.75L13 14.5l1.75-2.25 2.75 4.25H7.5z'
+    }),
+    h('circle', { cx: '15.5', cy: '8.5', r: '1' })
+  ])
 }
 
 const ChartIcon = {
@@ -700,6 +715,7 @@ const ChevronDownIcon = {
 const flagChannelMonitor = makeSidebarFlag(FeatureFlags.channelMonitor)
 const flagPayment = makeSidebarFlag(FeatureFlags.payment)
 const flagAvailableChannels = makeSidebarFlag(FeatureFlags.availableChannels)
+const flagModelPlaza = makeSidebarFlag(FeatureFlags.modelPlaza)
 const flagAffiliate = makeSidebarFlag(FeatureFlags.affiliate)
 const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
 const flagPluginManagement = makeSidebarFlag(FeatureFlags.pluginManagement)
@@ -719,6 +735,8 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
+    { path: '/model-plaza', query: { embedded: '1' }, label: t('nav.modelPlaza'), icon: ModelPlazaIcon, featureFlag: flagModelPlaza },
+    { path: '/image-studio', label: dockText.value.imageStudio, icon: ImageStudioIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
@@ -881,7 +899,7 @@ const managementSections = computed(() => groupNavigation(adminNavItems.value, [
 
 const personalSections = computed(() => groupNavigation(isAdmin.value ? personalNavItems.value : userNavItems.value, [
   { id: 'overview', label: dockText.value.overview, paths: ['/dashboard'] },
-  { id: 'work', label: dockText.value.work, paths: ['/keys', '/batch-image', '/usage', '/available-channels', '/monitor'] },
+  { id: 'work', label: dockText.value.work, paths: ['/model-plaza', '/keys', '/image-studio', '/batch-image', '/usage', '/available-channels', '/monitor'] },
   { id: 'account', label: dockText.value.account, paths: ['/purchase', '/subscriptions', '/orders', '/redeem', '/affiliate', '/profile'] }
 ], 'personal'))
 

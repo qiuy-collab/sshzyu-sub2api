@@ -6,6 +6,17 @@
     @close="emit('close')"
   >
     <div class="space-y-4">
+      <router-link
+        v-if="imageStudioPath"
+        :to="imageStudioPath"
+        data-testid="image-studio-key-link"
+        class="btn btn-secondary inline-flex items-center gap-2"
+        @click="emit('close')"
+      >
+        <Icon name="photograph" size="sm" />
+        {{ t('imageStudio.title') }}
+        <Icon name="arrowRight" size="sm" />
+      </router-link>
       <!-- No Group Assigned Warning -->
       <div v-if="!platform" class="flex items-start gap-3 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
         <svg class="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
@@ -257,12 +268,14 @@
 <script setup lang="ts">
 import { ref, computed, h, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 import { saveAs } from 'file-saver'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { fetchCodexModelsManifest } from '@/api/codex'
 import type { GroupPlatform } from '@/types'
+import { imageStudioKeyPath } from '@/utils/imageStudioKeyHandoff'
 import {
   findCodexCatalogModel,
   formatCodexReasoningEffortTomlLine,
@@ -276,6 +289,7 @@ interface Props {
   baseUrl: string
   platform: GroupPlatform | null
   allowMessagesDispatch?: boolean
+  imageStudioKeyId?: number
 }
 
 interface Emits {
@@ -299,6 +313,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const { t } = useI18n()
+const imageStudioPath = computed(() => imageStudioKeyPath(props.imageStudioKeyId))
 const { copyToClipboard: clipboardCopy } = useClipboard()
 
 const copiedIndex = ref<number | null>(null)

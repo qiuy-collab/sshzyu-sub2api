@@ -371,6 +371,15 @@
 
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
+              <router-link
+                v-if="imageStudioKeyRoute(row)"
+                :to="imageStudioKeyRoute(row) || '/image-studio'"
+                data-testid="image-studio-key-link"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+              >
+                <Icon name="photograph" size="sm" />
+                <span class="text-xs">{{ t('imageStudio.title') }}</span>
+              </router-link>
               <!-- Use Key Button -->
               <button
                 @click="openUseKeyModal(row)"
@@ -995,6 +1004,7 @@
       :base-url="publicSettings?.api_base_url || ''"
       :platform="selectedKey?.group?.platform || null"
       :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
+      :image-studio-key-id="selectedKey && imageStudioKeyRoute(selectedKey) ? selectedKey.id : undefined"
       @close="closeUseKeyModal"
     />
 
@@ -1145,6 +1155,7 @@ import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
+import { imageStudioKeyRoute } from '@/utils/imageStudioKeyHandoff'
 import {
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType

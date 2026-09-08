@@ -216,6 +216,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/image-studio',
+    name: 'ImageStudio',
+    component: () => import('@/views/user/ImageStudioView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Creative Canvas',
+      titleKey: 'imageStudio.title',
+      descriptionKey: 'imageStudio.description'
+    }
+  },
+  {
     path: '/batch-image',
     name: 'BatchImageGuide',
     alias: '/docs/batch-image',

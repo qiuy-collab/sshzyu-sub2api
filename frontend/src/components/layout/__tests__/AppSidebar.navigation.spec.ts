@@ -25,6 +25,8 @@ function createAppState() {
     cachedPublicSettings: {
       channel_monitor_enabled: true,
       available_channels_enabled: true,
+      model_plaza_enabled: true as boolean | undefined,
+      model_plaza_require_auth: true,
       payment_enabled: true,
       affiliate_enabled: true,
       risk_control_enabled: true,
@@ -153,7 +155,7 @@ describe('AppSidebar Dock navigation', () => {
     await wrapper.get('button[aria-label="个人空间"]').trigger('click')
     expect(router.currentRoute.value.path).toBe('/admin/dashboard')
     expect(navigationPaths(wrapper)).toEqual([
-      '/keys', '/batch-image', '/usage', '/available-channels', '/monitor', '/subscriptions',
+      '/keys', '/model-plaza?embedded=1', '/image-studio', '/batch-image', '/usage', '/available-channels', '/monitor', '/subscriptions',
       '/purchase', '/orders', '/redeem', '/affiliate', '/profile', '/custom/user-help'
     ].sort())
     expect(wrapper.get('button[aria-label="个人空间"]').attributes('aria-pressed')).toBe('true')
@@ -187,7 +189,7 @@ describe('AppSidebar Dock navigation', () => {
     }
     await wrapper.get('button[aria-label="个人空间"]').trigger('click')
     const personalPaths = navigationPaths(wrapper)
-    for (const path of ['/monitor', '/available-channels', '/purchase', '/orders', '/affiliate', '/batch-image']) {
+    for (const path of ['/monitor', '/available-channels', '/purchase', '/orders', '/affiliate', '/batch-image', '/image-studio']) {
       expect(personalPaths).not.toContain(path)
     }
     expect(personalPaths).toContain('/subscriptions')
@@ -215,7 +217,7 @@ describe('AppSidebar Dock navigation', () => {
     authStore.isAdmin = false
     authStore.isSimpleMode = true
     const wrapper = await renderSidebar('/keys')
-    expect(navigationPaths(wrapper)).toEqual(['/dashboard', '/keys', '/monitor', '/profile'].sort())
+    expect(navigationPaths(wrapper)).toEqual(['/dashboard', '/keys', '/model-plaza?embedded=1', '/monitor', '/profile'].sort())
     appStore.backendModeEnabled = true
     await nextTick()
     expect(navigationPaths(wrapper)).toEqual([])
@@ -242,6 +244,58 @@ describe('AppSidebar Dock navigation', () => {
     await flushPromises()
     expect(wrapper.get('button[aria-label="管理空间"]').attributes('aria-pressed')).toBe('true')
     expect(wrapper.get('a[href="/admin/risk-control"]').attributes('aria-current')).toBe('page')
+  })
+
+  it.each([false, true])('exposes Model Plaza in the personal workspace with its existing embedded URL and opt-in flag (admin=%s)', async (admin) => {
+    authStore.isAdmin = admin
+    const wrapper = await renderSidebar('/keys')
+    const plaza = wrapper.get('a[href="/model-plaza?embedded=1"]')
+    expect(plaza.text()).toBe('nav.modelPlaza')
+    const workLinks = wrapper.get('section[aria-label="工作空间"]').findAll('a')
+    expect(workLinks[0].attributes('href')).toBe('/model-plaza?embedded=1')
+    await plaza.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/model-plaza')
+    expect(router.currentRoute.value.query).toEqual({ embedded: '1' })
+    if (admin) expect(wrapper.get('button[aria-label="个人空间"]').attributes('aria-pressed')).toBe('true')
+    appStore.cachedPublicSettings.model_plaza_require_auth = false
+    await nextTick()
+    expect(wrapper.find('a[href="/model-plaza?embedded=1"]').exists()).toBe(true)
+    appStore.cachedPublicSettings.model_plaza_enabled = false
+    await nextTick()
+    if (admin) await wrapper.get('button[aria-label="个人空间"]').trigger('click')
+    expect(wrapper.find('a[href="/model-plaza?embedded=1"]').exists()).toBe(false)
+    appStore.cachedPublicSettings.model_plaza_enabled = undefined
+    await nextTick()
+    expect(wrapper.find('a[href="/model-plaza?embedded=1"]').exists()).toBe(false)
+    appStore.cachedPublicSettings.model_plaza_enabled = true
+    await nextTick()
+    expect(wrapper.find('a[href="/model-plaza?embedded=1"]').exists()).toBe(true)
+  })
+
+  it('adds Creative canvas without replacing Batch Image and applies the same image access permission', async () => {
+    const wrapper = await renderSidebar('/image-studio')
+    expect(wrapper.get('button[aria-label="个人空间"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('a[href="/image-studio"]').text()).toBe('创作画布')
+    expect(wrapper.get('a[href="/image-studio"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('a[href="/batch-image"]').text()).toBe('nav.batchImage')
+    locale.value = 'en'
+    await nextTick()
+    expect(wrapper.get('a[href="/image-studio"]').text()).toBe('Creative canvas')
+    batchAccess.value = false
+    await nextTick()
+    await wrapper.get('button[aria-label="Personal"]').trigger('click')
+    expect(wrapper.find('a[href="/image-studio"]').exists()).toBe(false)
+    expect(wrapper.find('a[href="/batch-image"]').exists()).toBe(false)
+    batchAccess.value = true
+    await nextTick()
+    expect(wrapper.find('a[href="/image-studio"]').exists()).toBe(true)
+    expect(wrapper.find('a[href="/batch-image"]').exists()).toBe(true)
+    authStore.isAdmin = false
+    authStore.isSimpleMode = true
+    await nextTick()
+    expect(wrapper.find('a[href="/image-studio"]').exists()).toBe(false)
+    expect(wrapper.find('a[href="/batch-image"]').exists()).toBe(false)
   })
 
   it('keeps expand-only groups on the current route and permits collapsing an active group', async () => {
