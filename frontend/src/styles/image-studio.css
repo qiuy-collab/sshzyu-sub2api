@@ -116,6 +116,35 @@
 .studio-run { background: var(--workspace-soft); border-radius: 9px; padding: 11px; font-size: 12px; }
 .studio-run-title { display: flex; justify-content: space-between; gap: 8px; }
 .studio-run-title strong { font-size: 11px; font-weight: 550; }
+.studio-run-title strong { display: inline-flex; align-items: center; gap: 6px; }
+/* A quiet, continuous activity signal, real task stages, and an explicit result reveal.
+   These indicators never imply a percentage or block the working canvas. */
+.studio-task-status { display: flex; align-items: center; gap: 12px; margin: -4px 0 14px; padding: 12px 14px; border: 1px solid var(--workspace-divider); border-radius: 12px; background: var(--workspace-surface); }
+.studio-task-status > svg, .studio-task-status > .studio-spinner { color: var(--workspace-accent); flex-shrink: 0; width: 18px; height: 18px; }
+.studio-task-copy { min-width: 0; flex: 1; }
+.studio-task-copy > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 12px; font-size: 12px; line-height: 1.6; }
+.studio-task-copy strong { font-weight: 550; }
+.studio-task-copy > div > span { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--workspace-muted); }
+.studio-task-copy time, .studio-node-progress time { color: var(--workspace-muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.studio-task-copy > p { margin-top: 2px; font-size: 11px; line-height: 1.6; color: var(--workspace-muted); overflow-wrap: anywhere; }
+.studio-task-status.has-error .studio-task-copy > p { color: #c34040; }
+.studio-task-status.is-complete > svg { color: #527e62; }
+.studio-task-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.studio-task-actions .studio-button { min-height: 34px; padding: 6px 10px; font-size: 12px; }
+.studio-task-actions .studio-icon-button { width: 34px; }
+.has-task .studio-canvas { height: calc(100dvh - 302px); }
+.studio-spinner { display: inline-block; width: 14px; height: 14px; flex-shrink: 0; border: 1.7px solid color-mix(in srgb, currentColor 23%, transparent); border-top-color: currentColor; border-radius: 50%; animation: studio-spin 900ms linear infinite; }
+.studio-node.is-generating { border-color: color-mix(in srgb, var(--workspace-accent) 50%, var(--workspace-divider)); }
+.studio-node-progress { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 12px; padding-bottom: 10px; color: var(--workspace-accent); font-size: 11px; }
+.studio-node-progress strong { font-weight: 500; }
+.studio-node-progress time { margin-left: auto; font-size: 10px; }
+.studio-activity-track { position: absolute; bottom: 0; left: 0; right: 0; height: 2px; border-radius: 2px; background: var(--workspace-divider); overflow: hidden; }
+.studio-activity-track::after { content: ''; display: block; width: 35%; height: 100%; border-radius: inherit; background: var(--workspace-accent); animation: studio-activity 1.9s ease-in-out infinite; }
+.studio-node-result { animation: studio-result-in 240ms ease-out; }
+.studio-inspector footer .studio-primary:disabled { opacity: .65; }
+@keyframes studio-spin { to { transform: rotate(360deg); } }
+@keyframes studio-activity { from { transform: translateX(-110%); } to { transform: translateX(390%); } }
+@keyframes studio-result-in { from { opacity: 0; } to { opacity: 1; } }
 .studio-run > p { margin: 8px 0; font-size: 10px; color: var(--workspace-muted); overflow-wrap: anywhere; line-height: 1.6; }
 .studio-run-actions { display: flex; gap: 12px; margin-top: 8px; }
 .studio-run-actions button { font-size: 11px; color: var(--workspace-accent); min-height: 28px; }
@@ -128,6 +157,13 @@
 @keyframes studio-inspector-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @media (max-width: 1279px) { .studio-desktop-help { display: none; } }
 @media (max-width: 767px) {
+  .studio-task-status { align-items: flex-start; flex-wrap: wrap; gap: 8px; padding: 10px 12px; margin-top: 0; }
+  .studio-task-status > svg, .studio-task-status > .studio-spinner { margin-top: 3px; width: 15px; height: 15px; }
+  .studio-task-copy { flex-basis: calc(100% - 26px); }
+  .studio-task-copy > div { gap: 3px 8px; }
+  .studio-task-copy > div > span { max-width: 105px; }
+  .studio-task-actions { margin-left: 23px; }
+  .has-task .studio-canvas { height: calc(100dvh - 351px); min-height: 440px; }
   .studio-topbar { margin-bottom: 12px; flex-wrap: wrap; }
   .studio-document-name { min-width: 160px; }
   .studio-document-name > input { font-size: 16px; }

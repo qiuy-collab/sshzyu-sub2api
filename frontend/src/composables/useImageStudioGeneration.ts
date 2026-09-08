@@ -42,6 +42,7 @@ export interface ImageStudioGenerationOptions {
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'output_deleted'])
 const POLL_INTERVAL = 8000
+const MAX_DELIVERY_RETRY_INTERVAL = 60000
 
 export function imageStudioReferenceLimit(model: string): number {
   const normalized = model.trim().toLowerCase()
@@ -53,6 +54,24 @@ export function imageStudioReferenceLimit(model: string): number {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String((error as { message?: string })?.message || '操作失败，请稍后重试。')
+}
+
+/** Only remote reads can retry automatically; local board/storage failures need user action. */
+class ImageStudioReadError extends Error {
+  readonly retryable: boolean
+
+  constructor(cause: unknown, retryable?: boolean) {
+    super(errorMessage(cause))
+    const status = Number((cause as { status?: number })?.status) || 0
+    const code = (cause as { code?: string })?.code
+    this.retryable = retryable ?? (code !== 'BATCH_IMAGE_ITEM_FAILED' &&
+      (!status || [408, 409, 425, 429].includes(status) || status >= 500))
+  }
+}
+
+async function readBatchImage<T>(operation: () => Promise<T>): Promise<T> {
+  try { return await operation() }
+  catch (cause) { throw new ImageStudioReadError(cause) }
 }
 
 function blobBase64(blob: Blob): Promise<string> {
@@ -80,10 +99,17 @@ export function useImageStudioGeneration(options: ImageStudioGenerationOptions) 
   const submitting = ref(false)
   const polling = ref(false)
   const cancelling = ref(false)
+  const receiving = ref(false)
+  const retryingDelivery = ref(false)
   const initialized = ref(false)
   const preparing = ref(false)
-  const busy = computed(() => preparing.value || submitting.value || cancelling.value || Boolean(run.value && (
-    !TERMINAL.has(run.value.status) || (run.value.status === 'completed' && !run.value.delivered)
+  const failedOutputBatchId = ref<string | null>(null)
+  const outputFailed = computed(() => run.value?.status === 'completed' && Boolean(
+    (run.value.job?.success_count === 0 && run.value.job.fail_count > 0) ||
+    (run.value.batchId && failedOutputBatchId.value === run.value.batchId)
+  ))
+  const busy = computed(() => preparing.value || submitting.value || polling.value || cancelling.value || receiving.value || Boolean(run.value && (
+    !TERMINAL.has(run.value.status) || (run.value.status === 'completed' && !run.value.delivered && !outputFailed.value)
   )))
   const selectedKey = computed(() => keys.value.find(key => key.id === Number(selectedKeyId.value)) || null)
   let disposed = false
@@ -95,6 +121,7 @@ export function useImageStudioGeneration(options: ImageStudioGenerationOptions) 
   let modelPromiseKeyId = 0
   let refreshPromise: Promise<void> | null = null
   let ownedKeys: ApiKey[] = []
+  let deliveryReadFailures = 0
 
   function stopPolling() {
     if (timer) clearTimeout(timer)
@@ -103,8 +130,28 @@ export function useImageStudioGeneration(options: ImageStudioGenerationOptions) 
 
   function schedulePolling() {
     stopPolling()
-    if (disposed || submitting.value || cancelling.value || !run.value?.batchId || TERMINAL.has(run.value.status)) return
-    timer = setTimeout(() => { void refresh() }, POLL_INTERVAL)
+    if (disposed || submitting.value || cancelling.value || !run.value?.batchId) return
+    const needsDelivery = run.value.status === 'completed' && !run.value.delivered && !outputFailed.value
+    if (TERMINAL.has(run.value.status) && !(needsDelivery && retryingDelivery.value)) return
+    const interval = needsDelivery
+      ? Math.min(MAX_DELIVERY_RETRY_INTERVAL, POLL_INTERVAL * 2 ** Math.min(Math.max(0, deliveryReadFailures - 1), 3))
+      : POLL_INTERVAL
+    timer = setTimeout(() => { void refresh() }, interval)
+  }
+
+  function resetDeliveryRetry() {
+    deliveryReadFailures = 0
+    retryingDelivery.value = false
+  }
+
+  function updateDeliveryRetry(cause: unknown) {
+    if (cause instanceof ImageStudioReadError && cause.retryable && run.value?.status === 'completed' &&
+        !run.value.delivered && !outputFailed.value) {
+      deliveryReadFailures++
+      retryingDelivery.value = true
+    } else {
+      resetDeliveryRetry()
+    }
   }
 
   async function save(next: ImageStudioRun) {
@@ -170,6 +217,8 @@ export function useImageStudioGeneration(options: ImageStudioGenerationOptions) 
     initialized.value = false
     error.value = ''
     stopPolling()
+    resetDeliveryRetry()
+    failedOutputBatchId.value = null
     try {
       if (!Number.isSafeInteger(options.userId) || options.userId <= 0) throw new Error('请登录后使用图片工作室。')
       const stored = await loadImageStudioRun(options.userId)
@@ -266,6 +315,8 @@ export function useImageStudioGeneration(options: ImageStudioGenerationOptions) 
       }
       await saveImageStudioRun(next, run.value?.idempotencyKey ?? null)
       run.value = next
+      resetDeliveryRetry()
+      failedOutputBatchId.value = null
       if (!disposed) await submitStored()
     } catch (cause) {
       error.value = errorMessage(cause)
@@ -314,19 +365,35 @@ export function useImageStudioGeneration(options: ImageStudioGenerationOptions) 
 
   async function deliverImage(current: ImageStudioRun, key: ApiKey, sequence: number) {
     if (current.delivered || current.status !== 'completed' || !current.batchId) return
-    const response = await listBatchImageItems(key.key, current.batchId)
-    if (disposed || sequence !== stateSequence) return
-    const item = response.data.find(item => item.custom_id === current.payload.items[0].custom_id &&
-      (item.status === 'succeeded' || item.status === 'success') && item.image_count > 0)
-    if (!item) throw new Error('任务已结束，但尚未找到成功图片，请刷新任务状态。')
-    // One output per run and one refresh promise keep content downloads serial.
-    const blob = await getBatchImageItemContent(key.key, current.batchId, item.custom_id, 0)
-    if (disposed || sequence !== stateSequence) return
-    await options.onImage(blob, {
-      batchId: current.batchId, customId: item.custom_id, prompt: current.payload.items[0].prompt,
-      model: current.payload.model, contextId: current.contextId,
-    })
-    await save({ ...current, delivered: true, error: null, updatedAt: Date.now() })
+    receiving.value = true
+    try {
+      const response = await readBatchImage(() => listBatchImageItems(key.key, current.batchId!))
+      if (disposed || sequence !== stateSequence) return
+      const item = response.data.find(item => item.custom_id === current.payload.items[0].custom_id)
+      // A completed batch means settlement finished; its sole image may still have failed.
+      if (item?.status === 'failed' || (current.job?.success_count === 0 && current.job.fail_count > 0)) {
+        failedOutputBatchId.value = current.batchId
+        const message = item?.error?.message || '本次任务未生成成功图片，请查看任务错误后再决定是否重新生成。'
+        await save({ ...current, error: message, updatedAt: Date.now() })
+        error.value = message
+        resetDeliveryRetry()
+        return
+      }
+      if (!item || !['succeeded', 'success'].includes(item.status) || item.image_count <= 0) {
+        throw new ImageStudioReadError(new Error('任务已结束，图片索引暂未就绪，正在自动重新读取。'), true)
+      }
+      // One output per run and one refresh promise keep content downloads serial.
+      const blob = await readBatchImage(() => getBatchImageItemContent(key.key, current.batchId!, item.custom_id, 0))
+      if (disposed || sequence !== stateSequence) return
+      await options.onImage(blob, {
+        batchId: current.batchId, customId: item.custom_id, prompt: current.payload.items[0].prompt,
+        model: current.payload.model, contextId: current.contextId,
+      })
+      await save({ ...current, delivered: true, error: null, updatedAt: Date.now() })
+      resetDeliveryRetry()
+    } finally {
+      receiving.value = false
+    }
   }
 
   async function refresh() {
@@ -339,16 +406,18 @@ export function useImageStudioGeneration(options: ImageStudioGenerationOptions) 
     refreshPromise = Promise.resolve().then(async () => {
       try {
         const key = keyForRun(current)
-        const job = await getBatchImageJob(key.key, current.batchId!)
+        const job = await readBatchImage(() => getBatchImageJob(key.key, current.batchId!))
         if (disposed || sequence !== stateSequence) return
         if (job.id !== current.batchId || typeof job.status !== 'string') throw new Error('服务器返回的任务记录不匹配，请稍后刷新。')
         const next = { ...current, job, status: job.status, error: null, updatedAt: Date.now() }
         await save(next)
         if (disposed || sequence !== stateSequence) return
         error.value = ''
+        if (next.status !== 'completed' || next.delivered) resetDeliveryRetry()
         await deliverImage(next, key, sequence)
       } catch (cause) {
         if (!disposed && sequence === stateSequence) {
+          updateDeliveryRetry(cause)
           error.value = errorMessage(cause)
           if (run.value?.idempotencyKey === current.idempotencyKey) {
             try { await save({ ...run.value, error: error.value, updatedAt: Date.now() }) }
@@ -378,8 +447,10 @@ export function useImageStudioGeneration(options: ImageStudioGenerationOptions) 
       const next = { ...current, job, status: job.status, error: null, updatedAt: Date.now() }
       await save(next)
       error.value = ''
+      if (next.status !== 'completed' || next.delivered) resetDeliveryRetry()
       if (!disposed) await deliverImage(next, key, sequence)
     } catch (cause) {
+      updateDeliveryRetry(cause)
       error.value = errorMessage(cause)
     } finally {
       cancelling.value = false
@@ -392,9 +463,10 @@ export function useImageStudioGeneration(options: ImageStudioGenerationOptions) 
     ++modelSequence
     ++stateSequence
     stopPolling()
+    resetDeliveryRetry()
     stopKeyWatch()
   }
 
   if (getCurrentScope()) onScopeDispose(dispose)
-  return { keys, selectedKeyId, models, loading, loadingModels, error, run, busy, submitting, polling, cancelling, init, generate, retrySubmission, refresh, cancel, dispose }
+  return { keys, selectedKeyId, models, loading, loadingModels, error, run, busy, submitting, polling, cancelling, receiving, retryingDelivery, outputFailed, init, generate, retrySubmission, refresh, cancel, dispose }
 }
