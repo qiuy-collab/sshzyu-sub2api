@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="SSHZYU 接入指南：配置 API 密钥、发起请求、接入客户端与排查错误。">
+  <meta name="color-scheme" content="light dark">
+  <meta name="sshzyu-docs-release" content="20260908-docs-r1">
+  <title>接入指南 · SSHZYU</title>
+  <link rel="icon" type="image/svg+xml" href="{{LOGO_URL}}" data-brand-icon>
+  <link rel="stylesheet" href="{{STYLE_URL}}">
+  <script src="{{SCRIPT_URL}}" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#guide">跳到文档正文</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/home" aria-label="SSHZYU 首页" data-brand-link>
+        <img class="brand-mark" src="{{LOGO_URL}}" data-default-logo="{{LOGO_URL}}" alt="SSHZYU" width="32" height="32" data-brand-logo>
+        <span class="brand-name" data-brand-name>SSHZYU</span>
+      </a>
+      <span class="brand-divider" aria-hidden="true"></span><span class="brand-context">接入文档</span>
+      <nav class="top-links" aria-label="网站导航"><a href="#guide" aria-current="page">接入指南</a><a href="/model-plaza">模型广场</a></nav>
+      <div class="header-actions">
+        <button class="icon-button theme-toggle" type="button" aria-label="切换深色模式" title="切换深色模式"><svg class="theme-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M20.7 14.3A8.8 8.8 0 0 1 9.7 3.3a9 9 0 1 0 11 11Z"/></svg><svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg></button>
+        <a class="console-link" href="/dashboard">控制台 <span aria-hidden="true">↗</span></a>
+        <button class="icon-button mobile-menu" type="button" aria-label="打开文档目录" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      </div>
+    </div>
+    <div class="reading-progress" aria-hidden="true"><span></span></div>
+  </header>
+  <div class="menu-overlay" hidden></div>
+  <div class="docs-layout">
+    <aside class="sidebar" id="sidebar" aria-label="文档目录">
+      <div class="sidebar-heading"><span>接入目录</span><button class="icon-button sidebar-close" type="button" aria-label="关闭文档目录"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
+      <nav class="side-nav" aria-label="章节导航">
+        <a class="toc-link active" href="#1-quick-start" aria-current="location"><span class="toc-number">01</span><span>快速开始</span></a>
+        <a class="toc-link" href="#2-客户端接入"><span class="toc-number">02</span><span>客户端接入</span></a>
+        <a class="toc-link" href="#3-错误码"><span class="toc-number">03</span><span>错误码</span></a>
+        <a class="toc-link" href="#4-联系方式"><span class="toc-number">04</span><span>联系支持</span></a>
+      </nav>
+      <div class="docs-tools"><span>常用入口</span><a href="/keys">获取 API 密钥 <span aria-hidden="true">↗</span></a><a href="/image-studio">打开创作画布 <span aria-hidden="true">↗</span></a></div>
+      <a class="back-top" href="#guide">返回顶部 <span aria-hidden="true">↑</span></a>
+    </aside>
+    <main id="guide" tabindex="-1">
+      <div class="guide-intro">
+        <div class="eyebrow"><span data-brand-name>SSHZYU</span><span aria-hidden="true">/</span><span>接入指南</span></div>
+        <h1 id="接入指南-sshzyu-com-http-sshzyu-com">开始使用你的 API。</h1>
+        <p>从配置密钥到发出第一个请求，按步骤完成接入。</p>
+        <nav class="chapter-map" aria-label="接入指南四个章节"><ol>
+          <li><a href="#1-quick-start"><span class="chapter-number">01</span><strong>快速开始</strong><span class="chapter-description">配置与请求示例</span></a></li>
+          <li><a href="#2-客户端接入"><span class="chapter-number">02</span><strong>客户端接入</strong><span class="chapter-description">导入与手动配置</span></a></li>
+          <li><a href="#3-错误码"><span class="chapter-number">03</span><strong>错误排查</strong><span class="chapter-description">状态码与解决方法</span></a></li>
+          <li><a href="#4-联系方式"><span class="chapter-number">04</span><strong>联系支持</strong><span class="chapter-description">获取进一步帮助</span></a></li>
+        </ol></nav>
+      </div>
+      <article class="markdown-body" aria-label="接入指南正文">{{CONTENT}}</article>
+      <footer class="docs-footer"><a href="/home" class="footer-brand"><img src="{{LOGO_URL}}" data-brand-logo alt="SSHZYU" width="24" height="24"><span data-brand-name>SSHZYU</span></a><span>接入指南</span><a href="#guide">返回顶部 ↑</a></footer>
+    </main>
+  </div>
+  <dialog class="image-dialog" aria-labelledby="image-dialog-title"><div class="image-dialog-toolbar"><p id="image-dialog-title"></p><button class="icon-button image-dialog-close" type="button" aria-label="关闭图片"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div><div class="image-dialog-content"><img alt=""></div></dialog>
+  <div class="docs-status" role="status" aria-live="polite"></div>
+</body>
+</html>
