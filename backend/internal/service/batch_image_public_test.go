@@ -402,6 +402,36 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		require.ErrorIs(t, err, ErrBatchImageTooManyOutputImages)
 	})
 
+	t.Run("accepts up to 16 reference images per item for gpt-image", func(t *testing.T) {
+		svc, _, _, _, _ := newTestBatchImagePublicService(true)
+		imagePrice := 0.12
+		svc.GroupRepo = &publicBatchImageGroupRepo{groups: map[int64]*Group{
+			16: {
+				ID:                           16,
+				Platform:                     PlatformOpenAI,
+				RateMultiplier:               1,
+				AllowImageGeneration:         true,
+				AllowBatchImageGeneration:    true,
+				ImagePrice1K:                 &imagePrice,
+				BatchImageDiscountMultiplier: 1,
+				BatchImageHoldMultiplier:     1.2,
+			},
+		}}
+		req := validBatchImageSubmitRequest()
+		req.Model = "gpt-image-2"
+		req.Provider = BatchImageProviderOpenAI
+		req.Items[0].ReferenceImages = make([]BatchImageReferenceInput, 16)
+		for i := range req.Items[0].ReferenceImages {
+			req.Items[0].ReferenceImages[i] = BatchImageReferenceInput{MimeType: "image/png", Data: []byte{byte(i + 1)}}
+		}
+
+		owner := testBatchImageOwner()
+		groupID := int64(16)
+		owner.GroupID = &groupID
+		_, err := svc.Submit(ctx, owner, req, "")
+		require.NoError(t, err)
+	})
+
 	t.Run("rejects too many reference images across request", func(t *testing.T) {
 		svc, _, _, _, _ := newTestBatchImagePublicService(true)
 		svc.Config.BatchImage.MaxReferenceImagesPerJob = 3
@@ -909,13 +939,17 @@ func newTestBatchImagePublicService(enabled bool) (*BatchImagePublicService, *fa
 	queue := &publicBatchImageQueue{}
 	gemini := &publicBatchImageProvider{name: BatchImageProviderGeminiAPI}
 	vertex := &publicBatchImageProvider{name: BatchImageProviderVertex}
+	openai := &publicBatchImageProvider{name: BatchImageProviderOpenAI}
+	openaiAccount := testBatchImageMappedAccount(303, AccountTypeAPIKey, map[string]any{"gpt-image-2": "gpt-image-2"})
+	openaiAccount.Platform = PlatformOpenAI
 	svc := &BatchImagePublicService{
 		Repo:        repo,
-		AccountRepo: &publicBatchImageAccountRepo{accounts: []Account{testBatchImageAccount(101, AccountTypeAPIKey), testBatchImageAccount(202, AccountTypeServiceAccount)}},
+		AccountRepo: &publicBatchImageAccountRepo{accounts: []Account{testBatchImageAccount(101, AccountTypeAPIKey), testBatchImageAccount(202, AccountTypeServiceAccount), openaiAccount}},
 		Queue:       queue,
 		ProviderRegistry: NewBatchImageProviderRegistry(
 			gemini,
 			vertex,
+			openai,
 		),
 		Pricing:     &fakeBatchImagePricingResolver{unitPrice: 0.25},
 		BillingRepo: &fakeBatchImageBillingRepo{},

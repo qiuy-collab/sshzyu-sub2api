@@ -1083,7 +1083,10 @@ func batchImageRepeatSuffixWidth(count int) int {
 func maxBatchImageReferenceImagesForModel(model string) int {
 	model = strings.ToLower(strings.TrimSpace(model))
 	if strings.HasPrefix(model, "gpt-image-") {
-		return 1
+		// Official images/edits accepts an array of input images for gpt-image
+		// models (mask applies to the first one); dall-e-2 is the single-image
+		// endpoint. Mirror the documented 16-image limit.
+		return 16
 	}
 	if strings.Contains(model, "pro-image") {
 		return 14
