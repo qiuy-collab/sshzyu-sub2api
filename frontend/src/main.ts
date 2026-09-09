@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import { Chart as ChartJS } from 'chart.js'
 import App from './App.vue'
 import router from './router'
 import i18n, { initI18n } from './i18n'
@@ -8,6 +9,11 @@ import { updateFavicon } from '@/utils/branding'
 import { BRAND_LOGO, resolveBrandName } from '@/utils/brandIdentity'
 import { isIOSDevice } from '@/utils/device'
 import './style.css'
+
+ChartJS.defaults.font.family =
+  "'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+ChartJS.defaults.font.size = 12
+ChartJS.defaults.font.lineHeight = 1.45
 
 function initIOSViewportZoomFix() {
   // iOS Safari 在输入框字号小于 16px 时聚焦会自动放大页面，且失焦后不会恢复。
