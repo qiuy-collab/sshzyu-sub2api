@@ -1,5 +1,5 @@
 <template>
-  <header class="workspace-header sticky top-0 z-30">
+  <header class="workspace-header">
     <div class="workspace-header-inner flex items-center justify-between gap-4">
       <!-- Left: Mobile Menu Toggle + Page Title -->
       <div class="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
