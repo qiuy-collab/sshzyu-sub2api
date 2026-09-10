@@ -695,17 +695,17 @@ func (s *BatchImagePublicService) ListModels(ctx context.Context, owner BatchIma
 			}
 			for _, model := range batchImageModelsFromAccountMapping(&account) {
 				if providerName == BatchImageProviderOpenAI {
-					if !isGPTImage2BatchModel(model) {
+					if !isOpenAICompatibleBatchImageModel(&account, model) {
 						continue
 					}
-					// gpt-image-2 batch jobs must never be routed to a Gemini-family
-					// image upstream (e.g. nano-banana), even if such a mapping is
-					// configured inside this group.
+					// OpenAI-compatible batch jobs must never be routed to a
+					// Gemini-family image upstream (e.g. nano-banana), even if such
+					// a mapping is configured inside this group.
 					if isGeminiImageUpstreamModel(account.GetMappedModel(model)) {
 						continue
 					}
 					// 映射目标必须是分组内实际存在的上游模型（例如 image-2-web 这类
-					// 上游别名），不再要求目标等于 gpt-image-2 字面量。
+					// 上游别名），不再要求目标等于某个固定模型字面量。
 					if !batchImageGroupHasModel(groupModels, account.GetMappedModel(model)) {
 						continue
 					}
@@ -713,7 +713,7 @@ func (s *BatchImagePublicService) ListModels(ctx context.Context, owner BatchIma
 				// OpenAI image catalog entries may be priced per output token. A batch
 				// response has no token count, so it is unsafe to infer a per-image
 				// price from that catalog. OpenAI batch therefore requires an explicit
-				// group image price, which is the deployment contract for gpt-image-2.
+				// group image price for every configured OpenAI image model.
 				if providerName == BatchImageProviderOpenAI && len(openAIImageSizes) == 0 {
 					continue
 				}
@@ -1012,9 +1012,6 @@ func (s *BatchImagePublicService) validateSubmitRequest(req BatchImageSubmitRequ
 		}
 	}
 	if req.Provider == BatchImageProviderOpenAI {
-		if !isGPTImage2BatchModel(req.Model) {
-			return req, ErrBatchImageInvalidModel
-		}
 		if _, _, err := resolveOpenAIBatchImageSpec(req.ImageSize, req.AspectRatio, req.ResponseMimeType); err != nil {
 			return req, ErrBatchImageInvalidItems
 		}
@@ -1119,11 +1116,11 @@ func (s *BatchImagePublicService) selectProviderAndAccount(ctx context.Context, 
 				continue
 			}
 			if providerName == BatchImageProviderOpenAI {
-				if !isGPTImage2BatchModel(model) {
+				if !isOpenAICompatibleBatchImageModel(&account, model) {
 					continue
 				}
-				// gpt-image-2 不得路由到 Gemini 系生图上游，目标必须是分组内
-				// 实际存在的模型（如 image-2-web 别名）。
+				// OpenAI-compatible 生图不得路由到 Gemini 系上游，目标必须是
+				// 分组内实际存在的模型（如 image-2-web 别名）。
 				if isGeminiImageUpstreamModel(account.GetMappedModel(model)) {
 					continue
 				}
@@ -1156,10 +1153,27 @@ func isBatchImageGroupPlatform(platform string) bool {
 	return platform == PlatformGemini || platform == PlatformOpenAI
 }
 
-// isGPTImage2BatchModel keeps this emulated OpenAI batch implementation scoped
-// to the one model whose pricing and upstream behaviour it is configured for.
-func isGPTImage2BatchModel(model string) bool {
-	return strings.EqualFold(strings.TrimSpace(model), "gpt-image-2")
+// isOpenAICompatibleBatchImageModel admits only model names explicitly exposed
+// by an OpenAI image account. GPT Image family names may legitimately map to an
+// upstream alias; custom names must use a direct mapping so a generic text-model
+// alias cannot accidentally be exposed through the image batch endpoint.
+func isOpenAICompatibleBatchImageModel(account *Account, model string) bool {
+	if account == nil {
+		return false
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return false
+	}
+	if strings.HasPrefix(strings.ToLower(model), "gpt-image-") {
+		return true
+	}
+	for configuredModel, upstreamModel := range account.GetModelMapping() {
+		if strings.EqualFold(strings.TrimSpace(configuredModel), model) {
+			return strings.EqualFold(strings.TrimSpace(upstreamModel), model)
+		}
+	}
+	return false
 }
 
 // isGeminiImageUpstreamModel reports whether the given upstream model name is a
@@ -1589,6 +1603,8 @@ func defaultBatchImageModelCandidates() []string {
 		"gemini-3.1-flash-image-preview",
 		"gemini-3.1-flash-lite-image",
 		"gpt-image-2",
+		"gpt-image-2.5-flare",
+		"gpt-image-2.5-sunburst",
 	}
 }
 

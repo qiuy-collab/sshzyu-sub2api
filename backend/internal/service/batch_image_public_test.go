@@ -349,7 +349,6 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 			{name: "empty_prompt", mutate: func(r *BatchImageSubmitRequest) { r.Items[0].Prompt = " " }, want: ErrBatchImageInvalidItems},
 			{name: "prompt_too_long", mutate: func(r *BatchImageSubmitRequest) { r.Items[0].Prompt = strings.Repeat("x", 9) }, want: ErrBatchImagePromptTooLong},
 			{name: "unsupported_provider", mutate: func(r *BatchImageSubmitRequest) { r.Provider = "other" }, want: ErrBatchImageUnsupportedProvider},
-			{name: "openai_rejects_non_gpt_image_2", mutate: func(r *BatchImageSubmitRequest) { r.Provider = BatchImageProviderOpenAI; r.Model = "gpt-image-3" }, want: ErrBatchImageInvalidModel},
 			{name: "vertex_rejects_2k", mutate: func(r *BatchImageSubmitRequest) { r.Provider = BatchImageProviderVertex; r.ImageSize = "2K" }, want: ErrBatchImageInvalidItems},
 			{name: "too_many_outputs_per_item", mutate: func(r *BatchImageSubmitRequest) {
 				r.Items[0].OutputCount = 5
@@ -612,11 +611,19 @@ func TestBatchImagePublicService_ListModels(t *testing.T) {
 		got, err := svc.ListModels(ctx, owner)
 		require.NoError(t, err)
 		require.Equal(t, []BatchImagePublicModel{{ID: "gpt-image-2", Object: "image.batch.model", Provider: BatchImageProviderOpenAI, SupportedImageSizes: []string{"1K"}, SupportedMimeTypes: []string{"image/png", "image/jpeg", "image/webp"}, SupportsCustomDimensions: true}}, got.Data)
-		account.Credentials["model_mapping"] = map[string]any{"alias": "gpt-image-2", "gpt-image-2": "gpt-image-2", "gpt-image-3": "gpt-image-3"}
+		account.Credentials["model_mapping"] = map[string]any{
+			"alias":                    "gpt-image-2",
+			"gpt-image-2":              "gpt-image-2",
+			"gpt-image-2.5-flare":      "gpt-image-2.5-flare",
+			"gpt-image-2.5-sunburst":   "gpt-image-2.5-sunburst",
+		}
 		got, err = svc.ListModels(ctx, owner)
 		require.NoError(t, err)
-		require.Len(t, got.Data, 1)
-		require.Equal(t, "gpt-image-2", got.Data[0].ID)
+		ids := make([]string, 0, len(got.Data))
+		for _, model := range got.Data {
+			ids = append(ids, model.ID)
+		}
+		require.Equal(t, []string{"gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"}, ids)
 		// 分组内配置的上游别名（image-2-web）可以列出：映射目标属于分组模型
 		// 全集即可，不再要求 gpt-image-2 字面量。
 		account.Credentials["model_mapping"] = map[string]any{"gpt-image-2": "image-2-web"}
@@ -1061,6 +1068,31 @@ func TestBatchImagePublicService_OpenAISelectionRejectsHiddenAlias(t *testing.T)
 		_, selected, err := svc.selectProviderAndAccount(context.Background(), testBatchImageOwner(), provider, "gpt-image-2")
 		require.NoError(t, err)
 		require.Equal(t, account.ID, selected.ID)
+	}
+}
+
+func TestBatchImagePublicService_OpenAISelectionUsesConfiguredImageModels(t *testing.T) {
+	svc, _, _, _, _ := newTestBatchImagePublicService(true)
+	svc.ProviderRegistry = NewBatchImageProviderRegistry(&publicBatchImageProvider{name: BatchImageProviderOpenAI})
+	account := testBatchImageMappedAccount(405, AccountTypeAPIKey, map[string]any{
+		"gpt-image-2.5-flare":    "gpt-image-2.5-flare",
+		"gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
+	})
+	account.Platform = PlatformOpenAI
+	svc.AccountRepo = &publicBatchImageAccountRepo{accounts: []Account{account}}
+
+	for _, model := range []string{"gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} {
+		t.Run(model, func(t *testing.T) {
+			req := validBatchImageSubmitRequest()
+			req.Provider = BatchImageProviderOpenAI
+			req.Model = model
+			_, err := svc.validateSubmitRequest(req)
+			require.NoError(t, err)
+
+			_, selected, err := svc.selectProviderAndAccount(context.Background(), testBatchImageOwner(), BatchImageProviderOpenAI, model)
+			require.NoError(t, err)
+			require.Equal(t, account.ID, selected.ID)
+		})
 	}
 }
 
