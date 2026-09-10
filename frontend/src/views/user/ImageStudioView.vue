@@ -39,7 +39,10 @@
             <svg class="studio-empty-mark" viewBox="0 0 180 100" fill="none" aria-hidden="true"><rect x="2" y="8" width="52" height="42" rx="12"/><path d="M16 23h24M16 31h17"/><rect x="2" y="60" width="52" height="36" rx="12"/><path d="m15 84 9-11 7 8 7-7 5 10"/><path d="M55 29c34 0 26 22 58 22M55 78c34 0 26-27 58-27"/><rect x="115" y="25" width="62" height="53" rx="15"/><path d="m138 41 15 10-15 10V41Z"/></svg>
             <h2>{{ t('imageStudio.emptyTitle') }}</h2>
             <p>{{ t('imageStudio.emptyDescription') }}</p>
-            <div class="studio-empty-actions"><button class="studio-button" @click="addText"><span class="studio-text-icon">T</span>{{ t('imageStudio.addText') }}</button><button class="studio-button" @click="imageInput?.click()"><Icon name="photograph" />{{ t('imageStudio.addImage') }}</button></div>
+            <div class="studio-empty-actions">
+              <button class="studio-button studio-primary studio-workflow-start" data-testid="start-image-workflow" @click="startWorkflow"><Icon name="sparkles" />{{ t('imageStudio.startWorkflow') }}</button>
+              <button class="studio-button" @click="imageInput?.click()"><Icon name="photograph" />{{ t('imageStudio.addImage') }}</button>
+            </div>
             <span class="studio-empty-flow">{{ t('imageStudio.emptyStep') }}</span>
           </div>
 
@@ -323,15 +326,27 @@ function newPosition(): StudioPoint {
   }
   return start
 }
-function makeRoom() { if (board.value.nodes.length >= 200) { notify(t('imageStudio.maxNodes')); return false } return true }
+function makeRoom(count = 1) { if (board.value.nodes.length + count > 200) { notify(t('imageStudio.maxNodes')); return false } return true }
 function selectNode(node: ImageStudioNode) { selectedId.value = node.id; selectedEdgeId.value = ''; tool.value = 'select'; connectSource.value = ''; if (inspectorId.value !== node.id) inspectorId.value = '' }
 function focusNodeEditor(node: ImageStudioNode) { selectNode(node); remember() }
 function addText() { if (!ready.value || !makeRoom()) return; remember(); inspectorId.value = ''; const node = createStudioNode('text', newPosition(), { text: '' }, t('imageStudio.text')); board.value.nodes.push(node); selectNode(node); nextTick(() => canvas.value?.querySelector<HTMLTextAreaElement>(`[data-node-id="${node.id}"] textarea`)?.focus()) }
+function createGenerator(position: StudioPoint) { return createStudioNode('generate', position, { prompt: '', referenceImages: [], model: generation.models[0]?.id || '', imageSize: '1K', aspectRatio: '1:1', outputCount: 1 }, t('imageStudio.generateNode')) }
+function startWorkflow() {
+  if (!ready.value || !makeRoom(2)) return
+  remember()
+  inspectorId.value = ''
+  const text = createStudioNode('text', newPosition(), { text: '' }, t('imageStudio.text'))
+  const generator = createGenerator({ x: text.position.x + 400, y: text.position.y })
+  board.value.nodes.push(text, generator)
+  board.value = connectNodes(board.value, text.id, generator.id)
+  selectNode(text)
+  nextTick(() => canvas.value?.querySelector<HTMLTextAreaElement>(`[data-node-id="${text.id}"] textarea`)?.focus())
+}
 function addGenerator(position?: StudioPoint, source?: ImageStudioNode) {
   if (!ready.value || !makeRoom()) return
   remember()
   source ||= board.value.nodes.find(n => n.id === selectedId.value && n.type !== 'generate')
-  const node = createStudioNode('generate', position || (source ? { x: source.position.x + 400, y: source.position.y } : newPosition()), { prompt: '', referenceImages: [], model: generation.models[0]?.id || '', imageSize: '1K', aspectRatio: '1:1', outputCount: 1 }, t('imageStudio.generateNode'))
+  const node = createGenerator(position || (source ? { x: source.position.x + 400, y: source.position.y } : newPosition()))
   board.value.nodes.push(node)
   if (source) { try { board.value = connectNodes(board.value, source.id, node.id) } catch (error) { notify(errorText(error)) } }
   openGenerator(node)

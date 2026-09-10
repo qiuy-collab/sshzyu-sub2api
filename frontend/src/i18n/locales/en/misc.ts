@@ -1,5 +1,12 @@
 export default {
 
+  frontendUpdate: {
+    title: 'A new interface is ready',
+    description: 'Refresh to see the latest features. Your current work will not be interrupted automatically.',
+    refresh: 'Refresh now',
+    later: 'Later'
+  },
+
   // Subscription Progress (Header component)
   subscriptionProgress: {
     title: 'My Subscriptions',

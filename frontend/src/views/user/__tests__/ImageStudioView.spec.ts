@@ -155,6 +155,17 @@ afterEach(async () => {
 })
 
 describe('image studio view integration', () => {
+  it('starts an editable prompt-to-image workflow without submitting a paid task', async () => {
+    const wrapper = await render()
+    await wrapper.get('[data-testid="start-image-workflow"]').trigger('click')
+
+    expect(wrapper.findAll('[data-node-type="text"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-node-type="generate"]')).toHaveLength(1)
+    expect(wrapper.findAll('.studio-edge-hit')).toHaveLength(1)
+    expect(document.activeElement).toBe(wrapper.get('.studio-note-text').element)
+    expect(generation.generate).not.toHaveBeenCalled()
+  })
+
   it('combines connected text in the preview and generates only on explicit form submission', async () => {
     const wrapper = await render()
     await wrapper.get('.studio-palette [aria-label="imageStudio.addText"]').trigger('click')

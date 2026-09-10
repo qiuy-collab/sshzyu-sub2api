@@ -51,6 +51,15 @@ describe('AppSidebar collapsible groups', () => {
   })
 })
 
+describe('AppSidebar creative canvas access', () => {
+  it('keeps the canvas visible before a user has a batch-image key', () => {
+    const canvasItem = componentSource.match(/\{ path: '\/image-studio',[\s\S]*?\},/)
+    expect(canvasItem?.[0]).toContain("hideInSimpleMode: true")
+    expect(canvasItem?.[0]).not.toContain('featureFlag')
+    expect(componentSource).toContain("{ path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess }")
+  })
+})
+
 describe('AppSidebar header styles', () => {
   it('does not clip the version badge dropdown', () => {
     const sidebarHeaderBlockMatch = styleSource.match(/\.sidebar-header\s*\{[\s\S]*?\n {2}\}/)

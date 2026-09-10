@@ -758,7 +758,10 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
     { path: '/model-plaza', query: { embedded: '1' }, label: t('nav.modelPlaza'), icon: ModelPlazaIcon, featureFlag: flagModelPlaza },
-    { path: '/image-studio', label: dockText.value.imageStudio, icon: ImageStudioIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
+    // A canvas is useful before a user has an eligible key: they can organize
+    // prompts and references, then create or enable a key when ready to run it.
+    // Only the legacy batch task page is restricted by key eligibility.
+    { path: '/image-studio', label: dockText.value.imageStudio, icon: ImageStudioIcon, hideInSimpleMode: true },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },

@@ -1,5 +1,12 @@
 export default {
 
+  frontendUpdate: {
+    title: '新版界面已准备好',
+    description: '刷新后即可看到最新功能。当前操作不会被自动打断。',
+    refresh: '立即刷新',
+    later: '稍后'
+  },
+
   // Subscription Progress (Header component)
   subscriptionProgress: {
     title: '我的订阅',

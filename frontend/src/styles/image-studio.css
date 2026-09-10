@@ -86,6 +86,7 @@
 .studio-empty h2 { font-size: 23px; letter-spacing: -.03em; font-weight: 600; }
 .studio-empty > p { font-size: 13px; color: var(--workspace-muted); line-height: 1.7; max-width: 330px; }
 .studio-empty-actions { display: flex; gap: 9px; margin: 8px 0 5px; }
+.studio-empty-actions .studio-workflow-start { min-width: 174px; }
 .studio-empty-flow { color: var(--workspace-muted); font-size: 11px; }
 .studio-inspector { position: absolute; top: 10px; right: 10px; bottom: 10px; width: 328px; z-index: 10; background: var(--workspace-surface); border: 1px solid var(--workspace-divider); border-radius: 15px; box-shadow: 0 8px 34px rgb(0 0 0 / 8%); display: flex; flex-direction: column; overflow: hidden; touch-action: pan-y; animation: studio-inspector-in 160ms ease-out; }
 .studio-inspector > header { display: flex; align-items: center; justify-content: space-between; padding: 17px 17px 13px; border-bottom: 1px solid var(--workspace-divider); gap: 10px; }
@@ -176,6 +177,7 @@
   .studio-empty { padding: 60px 25px 80px 62px; }
   .studio-empty h2 { font-size: 20px; }
   .studio-empty-actions { flex-direction: column; width: 155px; }
+  .studio-empty-actions .studio-workflow-start { min-width: 0; width: 100%; }
   .studio-empty-flow { font-size: 9px; }
   .studio-connect-hint { left: 66px; right: 10px; top: 10px; font-size: 11px; }
   .studio-zoom-controls { right: 10px; bottom: 10px; }
